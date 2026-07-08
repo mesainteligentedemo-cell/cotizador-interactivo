@@ -1,5 +1,4 @@
 import jsPDF from 'jspdf';
-import html2canvas from 'html2canvas';
 import { CartItem } from '@/app/page';
 
 interface DatosCliente {
@@ -49,34 +48,34 @@ export async function generarPDF(
   // Información del cliente
   doc.setTextColor(0, 0, 0);
   doc.setFontSize(11);
-  doc.setFont(undefined, 'bold');
+  doc.setFont('helvetica', 'bold');
   doc.text('DATOS DEL CLIENTE', margin, yPos);
   yPos += 7;
 
   doc.setFontSize(10);
-  doc.setFont(undefined, 'normal');
-  doc.text(`Nombre: ${datosCliente.nombre}`, margin, yPos);
+  doc.setFont('helvetica', 'normal');
+  doc.text(`Nombre: ${datosCliente.nombre || ''}`, margin, yPos);
   yPos += 5;
 
   if (datosCliente.empresa) {
-    doc.text(`Empresa: ${datosCliente.empresa}`, margin, yPos);
+    doc.text(`Empresa: ${datosCliente.empresa || ''}`, margin, yPos);
     yPos += 5;
   }
 
   if (datosCliente.correo) {
-    doc.text(`Correo: ${datosCliente.correo}`, margin, yPos);
+    doc.text(`Correo: ${datosCliente.correo || ''}`, margin, yPos);
     yPos += 5;
   }
 
   if (datosCliente.telefono) {
-    doc.text(`Teléfono: ${datosCliente.telefono}`, margin, yPos);
+    doc.text(`Teléfono: ${datosCliente.telefono || ''}`, margin, yPos);
     yPos += 5;
   }
 
   yPos += 5;
 
   // Tabla de productos
-  doc.setFont(undefined, 'bold');
+  doc.setFont('helvetica', 'bold');
   doc.setFontSize(10);
 
   // Encabezado de tabla
@@ -95,7 +94,7 @@ export async function generarPDF(
   yPos += 5;
 
   // Filas de productos
-  doc.setFont(undefined, 'normal');
+  doc.setFont('helvetica', 'normal');
   doc.setFontSize(9);
 
   cart.forEach((item) => {
@@ -126,7 +125,7 @@ export async function generarPDF(
   yPos += 7;
 
   // Totales
-  doc.setFont(undefined, 'bold');
+  doc.setFont('helvetica', 'bold');
   doc.setFontSize(10);
 
   const totalsStartX = pageWidth - 80;
