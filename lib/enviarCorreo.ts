@@ -45,11 +45,13 @@ export async function enviarPorCorreo(
     }),
   });
 
-  if (!response.ok) {
-    throw new Error('Error al enviar el correo');
+  const data = await response.json().catch(() => ({}));
+
+  if (!response.ok || data.success === false) {
+    throw new Error(data.error || 'Error al enviar el correo');
   }
 
-  return response.json();
+  return data;
 }
 
 function generarHTMLCotizacion(

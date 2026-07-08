@@ -5,6 +5,7 @@ import { CartItem, DatosCliente, MetodoPago, Proyecto } from '@/lib/types';
 import { calcularSubtotal } from '@/lib/calculos';
 import { generarPDF } from '@/lib/generarPDF';
 import { enviarPorCorreo } from '@/lib/enviarCorreo';
+import { guardarEnSheets } from '@/lib/guardarCotizacion';
 
 interface CartSummaryProps {
   cart: CartItem[];
@@ -69,15 +70,45 @@ export function CartSummary({
     return grupos;
   }, [cart, moneda, tipoCambio]);
 
-  const handleGuardarCotizacion = async () => {
+  const handleDescargarPDF = async () => {
     setCargando(true);
     try {
       await generarPDF(cart, cliente, proyecto, metodoPago, moneda, ocultarDescuento, subtotal, iva, total);
     } catch (error) {
       console.error('Error generando PDF:', error);
-      alert('Error al guardar la cotización');
+      const mensaje = error instanceof Error ? error.message : 'error desconocido';
+      alert(`Error al generar el PDF: ${mensaje}`);
     } finally {
       setCargando(false);
+    }
+  };
+
+  const handleGuardarCotizacion = async () => {
+    setCargando(true);
+    const errores: string[] = [];
+
+    try {
+      await guardarEnSheets(cart, cliente, proyecto, metodoPago, moneda, subtotal, iva, total);
+    } catch (error) {
+      console.error('Error guardando en Sheets:', error);
+      const mensaje = error instanceof Error ? error.message : 'error desconocido';
+      errores.push(`Google Sheets: ${mensaje}`);
+    }
+
+    try {
+      await generarPDF(cart, cliente, proyecto, metodoPago, moneda, ocultarDescuento, subtotal, iva, total);
+    } catch (error) {
+      console.error('Error generando PDF:', error);
+      const mensaje = error instanceof Error ? error.message : 'error desconocido';
+      errores.push(`PDF: ${mensaje}`);
+    }
+
+    setCargando(false);
+
+    if (errores.length === 0) {
+      alert('Cotización guardada correctamente');
+    } else {
+      alert(`Se completó parcialmente. Revisa lo siguiente:\n\n${errores.join('\n')}`);
     }
   };
 
@@ -88,15 +119,54 @@ export function CartSummary({
     }
 
     setCargando(true);
+    const errores: string[] = [];
+    let correoSandbox = false;
+
     try {
-      await enviarPorCorreo(cart, cliente, proyecto, metodoPago, moneda, ocultarDescuento, subtotal, iva, total);
-      await generarPDF(cart, cliente, proyecto, metodoPago, moneda, ocultarDescuento, subtotal, iva, total);
-      alert('Cotización enviada y guardada correctamente');
+      const resultadoCorreo = await enviarPorCorreo(
+        cart,
+        cliente,
+        proyecto,
+        metodoPago,
+        moneda,
+        ocultarDescuento,
+        subtotal,
+        iva,
+        total
+      );
+      correoSandbox = Boolean(resultadoCorreo?.sandbox);
     } catch (error) {
-      console.error('Error enviando cotización:', error);
-      alert('Error al enviar la cotización');
-    } finally {
-      setCargando(false);
+      console.error('Error enviando correo:', error);
+      const mensaje = error instanceof Error ? error.message : 'error desconocido';
+      errores.push(`Correo: ${mensaje}`);
+    }
+
+    try {
+      await guardarEnSheets(cart, cliente, proyecto, metodoPago, moneda, subtotal, iva, total);
+    } catch (error) {
+      console.error('Error guardando en Sheets:', error);
+      const mensaje = error instanceof Error ? error.message : 'error desconocido';
+      errores.push(`Google Sheets: ${mensaje}`);
+    }
+
+    try {
+      await generarPDF(cart, cliente, proyecto, metodoPago, moneda, ocultarDescuento, subtotal, iva, total);
+    } catch (error) {
+      console.error('Error generando PDF:', error);
+      const mensaje = error instanceof Error ? error.message : 'error desconocido';
+      errores.push(`PDF: ${mensaje}`);
+    }
+
+    setCargando(false);
+
+    if (errores.length === 0) {
+      alert(
+        correoSandbox
+          ? 'Cotización guardada correctamente. Nota: el correo se envió en modo de prueba (RESEND_API_KEY no configurada), no llegó realmente al cliente.'
+          : 'Cotización enviada y guardada correctamente'
+      );
+    } else {
+      alert(`Se completó parcialmente. Revisa lo siguiente:\n\n${errores.join('\n')}`);
     }
   };
 
@@ -237,6 +307,13 @@ export function CartSummary({
               className="w-full bg-green-600 hover:bg-green-700 disabled:bg-gray-400 text-white px-4 py-2 rounded-lg font-medium text-sm transition"
             >
               {cargando ? 'Procesando...' : '📥 Guardar Cotización'}
+            </button>
+            <button
+              onClick={handleDescargarPDF}
+              disabled={cargando}
+              className="w-full bg-gray-700 hover:bg-gray-800 disabled:bg-gray-400 text-white px-4 py-2 rounded-lg font-medium text-sm transition"
+            >
+              {cargando ? 'Procesando...' : '📄 Descargar PDF'}
             </button>
             <button
               onClick={onLimpiarCarrito}

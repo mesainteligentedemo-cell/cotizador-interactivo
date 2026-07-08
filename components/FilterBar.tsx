@@ -49,7 +49,17 @@ export function FilterBar({
           <label className="block text-sm font-medium text-gray-700 mb-2">
             Tipo de Producto
           </label>
-          <div className="grid grid-cols-3 gap-2">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+            <button
+              onClick={() => setTipoProductoFiltro('')}
+              className={`px-3 py-2 rounded-lg text-sm font-medium transition ${
+                tipoProductoFiltro === ''
+                  ? 'bg-[#0055a5] text-white'
+                  : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+              }`}
+            >
+              Todos
+            </button>
             <button
               onClick={() => setTipoProductoFiltro('catalogo')}
               className={`px-3 py-2 rounded-lg text-sm font-medium transition ${
