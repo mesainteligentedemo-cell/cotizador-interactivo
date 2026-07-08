@@ -46,6 +46,12 @@ function addHeaderAndFooter(
 // todavía. `generarPDF` y `generarPDFBlob` reutilizan esta función para no duplicar el
 // dibujado del PDF — uno lo guarda directo a disco, el otro lo entrega como Blob en memoria
 // (para adjuntarlo/abrirlo desde el cliente de correo sin pasar por el disco primero).
+//
+// ARQUITECTURA — FLOW LAYOUT DINÁMICO (como HTML):
+//   El contenido fluye de arriba a abajo. NO hay `doc.addPage()` hardcodeados por sección.
+//   Una página nueva solo se crea cuando el siguiente bloque no cabe en el espacio restante
+//   (`checkPageBreak`). Resultado: PDFs compactos que se adaptan al contenido — sin espacios
+//   en blanco grandes, sea la cotización de 1 producto o de 100.
 async function construirDocumentoPDF(
   cart: CartItem[],
   datosCliente: DatosCliente,
@@ -66,17 +72,38 @@ async function construirDocumentoPDF(
   const pageWidth = doc.internal.pageSize.getWidth();
   const pageHeight = doc.internal.pageSize.getHeight();
   const margin = 12;
+  const contentWidth = pageWidth - 2 * margin;
   const simbolo = moneda === 'USD' ? 'USD' : 'MXN';
   const fecha = new Date().toLocaleDateString('es-MX');
   const fechaVencimiento = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toLocaleDateString('es-MX');
   const companiaName = datosCliente.empresa || 'MI EMPRESA';
 
+  // Límites verticales del área de contenido (entre header y footer).
+  const contentTop = 22;
+  const contentBottom = pageHeight - 14;
+
   let paginaActual = 1;
+  let yPos = contentTop;
 
-  // ==================== PÁGINA 1: PORTADA ====================
+  // ---------------------------------------------------------------------------
+  // checkPageBreak: núcleo del flow layout. Si el bloque que viene (`requiredSpace`
+  // en mm) no cabe en lo que resta de la página, crea una página nueva, repinta el
+  // header/footer y reinicia yPos arriba. Si cabe, no hace nada. Devuelve true si
+  // saltó de página (útil, p. ej., para repintar el encabezado de la tabla).
+  // ---------------------------------------------------------------------------
+  function checkPageBreak(requiredSpace: number): boolean {
+    if (yPos + requiredSpace > contentBottom) {
+      doc.addPage();
+      paginaActual++;
+      addHeaderAndFooter(doc, paginaActual, fecha, companiaName);
+      yPos = contentTop;
+      return true;
+    }
+    return false;
+  }
+
+  // ==================== PORTADA (encabezado del documento) ====================
   addHeaderAndFooter(doc, paginaActual, fecha, companiaName);
-
-  let yPos = 22;
 
   // Logo placeholder (rectángulo con iniciales de la empresa)
   const iniciales = (companiaName || 'MI')
@@ -124,26 +151,27 @@ async function construirDocumentoPDF(
 
   // Bloque azul con fecha
   doc.setFillColor(...COLOR_BRAND);
-  doc.roundedRect(margin, yPos, pageWidth - 2 * margin, 8, 1.5, 1.5, 'F');
+  doc.roundedRect(margin, yPos, contentWidth, 8, 1.5, 1.5, 'F');
   doc.setFontSize(10);
   doc.setTextColor(255, 255, 255);
   doc.setFont('helvetica', 'bold');
-  doc.text('---', margin + 5, yPos + 5);
+  doc.text('COTIZACIÓN', margin + 5, yPos + 5);
   doc.text(`Fecha: ${fecha}`, pageWidth - margin - 5, yPos + 5, { align: 'right' });
-  yPos += 9;
+  yPos += 12;
 
-  // Sección Cliente — con fondo gris (caja), como en la referencia
+  // Sección Cliente — caja gris. Se calcula la altura primero y se mantiene unida.
   const nombreClienteMostrar = (
     datosCliente.nombreComercial ||
     datosCliente.empresa ||
     datosCliente.nombreCompleto
   ).toUpperCase();
 
-  const clienteBoxY = yPos - 3;
   const clienteBoxHeight = 4 + 4 + (datosCliente.telefono ? 3 : 0) + 3;
+  checkPageBreak(clienteBoxHeight + 4);
 
+  const clienteBoxY = yPos - 3;
   doc.setFillColor(...COLOR_GRAY_BG);
-  doc.roundedRect(margin, clienteBoxY, pageWidth - 2 * margin, clienteBoxHeight, 2, 2, 'F');
+  doc.roundedRect(margin, clienteBoxY, contentWidth, clienteBoxHeight, 2, 2, 'F');
 
   doc.setFontSize(9);
   doc.setTextColor(...COLOR_GRAY_LABEL);
@@ -165,46 +193,56 @@ async function construirDocumentoPDF(
     yPos += 3;
   }
 
-  yPos = clienteBoxY + clienteBoxHeight + 3;
+  yPos = clienteBoxY + clienteBoxHeight + 5;
 
-  // Narrativa del proyecto
+  // Narrativa del proyecto (bloque de texto — puede saltar de página si es muy largo)
   doc.setFontSize(10);
   doc.setTextColor(...COLOR_TEXT_SOFT);
   doc.setFont('helvetica', 'normal');
   const narrativa = `Estimada ${datosCliente.nombreCompleto},\nEs un gusto saludarle en nombre de ${companiaName}. Hemos preparado con especial atención esta propuesta para ${proyecto.titulo || 'su proyecto'}, pensando en un sistema que combine tecnología de punta, confiabilidad y la tranquilidad que su proyecto merece.`;
-  const narrativaLines = doc.splitTextToSize(narrativa, pageWidth - 2 * margin);
+  const narrativaLines = doc.splitTextToSize(narrativa, contentWidth);
+  checkPageBreak(narrativaLines.length * 3.8 + 2);
   doc.text(narrativaLines, margin, yPos);
-  yPos += narrativaLines.length * 3.8 + 2;
+  yPos += narrativaLines.length * 3.8 + 3;
 
-  // Título proyecto
+  // Título proyecto + descripción (mantenidos juntos con su primera línea)
+  doc.setFontSize(14);
+  doc.setFont('helvetica', 'bold');
+  let descripcionLines: string[] = [];
+  if (proyecto.descripcion) {
+    doc.setFontSize(10);
+    doc.setFont('helvetica', 'normal');
+    descripcionLines = doc.splitTextToSize(proyecto.descripcion, contentWidth);
+  }
+  checkPageBreak(6 + descripcionLines.length * 3.8 + 2);
+
   doc.setFontSize(14);
   doc.setTextColor(...COLOR_BRAND);
   doc.setFont('helvetica', 'bold');
   doc.text((proyecto.titulo || 'PROYECTO').toUpperCase(), margin, yPos);
-  yPos += 4;
+  yPos += 5;
 
-  // Descripción del proyecto
-  doc.setFontSize(10);
-  doc.setTextColor(...COLOR_TEXT_SOFT);
-  doc.setFont('helvetica', 'normal');
-  if (proyecto.descripcion) {
-    const descripcionLines = doc.splitTextToSize(proyecto.descripcion, pageWidth - 2 * margin);
+  if (descripcionLines.length > 0) {
+    doc.setFontSize(10);
+    doc.setTextColor(...COLOR_TEXT_SOFT);
+    doc.setFont('helvetica', 'normal');
     doc.text(descripcionLines, margin, yPos);
-    yPos += descripcionLines.length * 3.8 + 2;
+    yPos += descripcionLines.length * 3.8 + 3;
   }
 
-  // Beneficios Clave — dentro de una caja azul claro, como en la referencia
+  // Beneficios Clave — caja azul claro. Bloque adhesivo (no se parte).
   const beneficios = [
     'Vigilancia continua con visión nocturna IR',
     'Transmisión estable y protegida',
     'Cableado certificado para exterior',
     'Instalación profesional especializada',
   ];
-  const beneficiosBoxY = yPos - 3;
   const beneficiosBoxHeight = 5 + beneficios.length * 3.5 + 2;
+  checkPageBreak(beneficiosBoxHeight + 3);
 
+  const beneficiosBoxY = yPos - 3;
   doc.setFillColor(...COLOR_BRAND_LIGHT);
-  doc.roundedRect(margin, beneficiosBoxY, pageWidth - 2 * margin, beneficiosBoxHeight, 2, 2, 'F');
+  doc.roundedRect(margin, beneficiosBoxY, contentWidth, beneficiosBoxHeight, 2, 2, 'F');
 
   doc.setFontSize(10);
   doc.setFont('helvetica', 'bold');
@@ -225,15 +263,9 @@ async function construirDocumentoPDF(
     doc.text(beneficio, margin + 10, yPos);
     yPos += 3.5;
   });
+  yPos = beneficiosBoxY + beneficiosBoxHeight + 6;
 
-  // ==================== PÁGINA 2: PRODUCTOS ====================
-  doc.addPage();
-  paginaActual++;
-  addHeaderAndFooter(doc, paginaActual, fecha, companiaName);
-
-  yPos = 22;
-
-  // Tabla header
+  // ==================== TABLA DE PRODUCTOS (flujo dinámico) ====================
   const colWidths = {
     producto: 90,
     cant: 18,
@@ -250,7 +282,7 @@ async function construirDocumentoPDF(
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(9);
 
-    doc.rect(startX, y - 4, pageWidth - 2 * margin, 6, 'F');
+    doc.rect(startX, y - 4, contentWidth, 6, 'F');
     doc.text('PRODUCTO', startX + 2, y);
     doc.text('CANT.', startX + colWidths.producto + 2, y);
     doc.text('P. UNITARIO', startX + colWidths.producto + colWidths.cant + 2, y);
@@ -262,44 +294,52 @@ async function construirDocumentoPDF(
     );
   }
 
+  // Aseguramos que el encabezado de la tabla nunca quede huérfano al pie de una página:
+  // pedimos espacio para el header + al menos una fila.
+  checkPageBreak(6 + 8);
   drawTableHeader(yPos);
-
   yPos += 5.5;
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(8);
 
   cart.forEach((item, index) => {
-    if (yPos > pageHeight - 45) {
+    const precioUnitarioFinal = item.product.precio * (1 - item.descuento / 100);
+    const importeLinea = precioUnitarioFinal * item.cantidad;
+    const descuentoDisplay = item.descuento > 0 && !ocultarDescuento ? `${item.descuento}%` : '—';
+
+    const nombreProducto = `${item.product.nombre}${item.product.codigo ? ` (${item.product.codigo})` : ''}`;
+    doc.setFontSize(8);
+    const productoLines = doc.splitTextToSize(nombreProducto, colWidths.producto - 5);
+
+    let rowHeight = Math.max(4.2, productoLines.length * 3.1);
+    let notaLines: string[] = [];
+    if (item.notas) {
+      doc.setFontSize(7);
+      notaLines = doc.splitTextToSize(`Nota: ${item.notas}`, colWidths.producto - 5);
+      doc.setFontSize(8);
+      rowHeight += notaLines.length * 2.6;
+    }
+
+    // Si la fila NO cabe en lo que resta de la página → nueva página + repintar el
+    // encabezado de la tabla para que la tabla continúe de forma legible.
+    if (yPos + rowHeight > contentBottom) {
       doc.addPage();
       paginaActual++;
       addHeaderAndFooter(doc, paginaActual, fecha, companiaName);
-      yPos = 22;
+      yPos = contentTop;
       drawTableHeader(yPos);
       yPos += 5.5;
       doc.setFont('helvetica', 'normal');
       doc.setFontSize(8);
     }
 
-    const precioUnitarioFinal = item.product.precio * (1 - item.descuento / 100);
-    const importeLinea = precioUnitarioFinal * item.cantidad;
-    const descuentoDisplay = item.descuento > 0 && !ocultarDescuento ? `${item.descuento}%` : '—';
-
-    const nombreProducto = `${item.product.nombre}${item.product.codigo ? ` (${item.product.codigo})` : ''}`;
-    const productoLines = doc.splitTextToSize(nombreProducto, colWidths.producto - 5);
-
-    let rowHeight = Math.max(4.2, productoLines.length * 3.1);
-    let notaLines: string[] = [];
-    if (item.notas) {
-      notaLines = doc.splitTextToSize(`Nota: ${item.notas}`, colWidths.producto - 5);
-      rowHeight += notaLines.length * 2.6;
-    }
-
     // Zebra striping — coincide con el look de la referencia
     if (index % 2 === 1) {
       doc.setFillColor(245, 247, 250);
-      doc.rect(startX, yPos - 3, pageWidth - 2 * margin, rowHeight + 1, 'F');
+      doc.rect(startX, yPos - 3, contentWidth, rowHeight + 1, 'F');
     }
 
+    doc.setFontSize(8);
     doc.setTextColor(0, 0, 0);
     doc.text(productoLines, startX + 2, yPos);
     doc.text(item.cantidad.toString(), startX + colWidths.producto + 2, yPos, { align: 'center' });
@@ -331,6 +371,19 @@ async function construirDocumentoPDF(
       yPos += rowHeight + 0.5;
     }
   });
+
+  // ==================== TOTALES + AVISO + INFO (bloque adhesivo) ====================
+  // Se calcula la altura del bloque completo de cierre de la tabla y se mantiene unido
+  // para que "Subtotal / IVA / TOTAL / vigencia" nunca se separen.
+  doc.setFontSize(9);
+  const avisoLines = doc.splitTextToSize(
+    `Esta cotización tiene una vigencia de 30 días naturales; después de este período los precios y disponibilidad están sujetos a cambio.`,
+    contentWidth - 10
+  );
+  const avisoHeight = avisoLines.length * 3.5 + 2;
+  const infoBoxHeight = 15;
+  const totalesBlockHeight = 1.5 + 3 + 4.5 + 5 + 5.5 + 2 + avisoHeight + 2 + infoBoxHeight + 1;
+  checkPageBreak(totalesBlockHeight);
 
   yPos += 1.5;
   doc.setDrawColor(180, 180, 180);
@@ -368,25 +421,19 @@ async function construirDocumentoPDF(
   doc.text(`$${total.toLocaleString('es-MX', { maximumFractionDigits: 2 })} ${simbolo}`, pageWidth - margin - 5, yPos, {
     align: 'right',
   });
-  yPos += 5.5;
+  yPos += 6;
 
   // Aviso vigencia — centrado, como en la referencia
   doc.setFillColor(255, 240, 220);
   doc.setTextColor(220, 100, 0);
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(9);
-  const avisoLines = doc.splitTextToSize(
-    `Esta cotización tiene una vigencia de 30 días naturales; después de este período los precios y disponibilidad están sujetos a cambio.`,
-    pageWidth - 2 * margin - 10
-  );
-  const avisoHeight = avisoLines.length * 3.5 + 2;
-  doc.roundedRect(margin, yPos - 3, pageWidth - 2 * margin, avisoHeight, 1.5, 1.5, 'F');
+  doc.roundedRect(margin, yPos - 3, contentWidth, avisoHeight, 1.5, 1.5, 'F');
   doc.text(avisoLines, pageWidth / 2, yPos, { align: 'center' });
   yPos += avisoHeight + 2;
 
   // Vigencia y Método de Pago — en cajas grises, como en la referencia
-  const boxWidth = (pageWidth - 2 * margin - 6) / 2;
-  const infoBoxHeight = 15;
+  const boxWidth = (contentWidth - 6) / 2;
 
   doc.setFillColor(...COLOR_GRAY_BG);
   doc.roundedRect(margin, yPos - 3.5, boxWidth, infoBoxHeight, 2, 2, 'F');
@@ -410,14 +457,9 @@ async function construirDocumentoPDF(
   doc.setFontSize(7);
   doc.setTextColor(120, 120, 120);
   doc.text(`Del ${fecha} al ${fechaVencimiento}`, margin + 5, yPos);
+  yPos = yPos - 8 + infoBoxHeight + 6; // baja al final de las cajas info + gap
 
-  // ==================== PÁGINA 3: TÉRMINOS Y CONDICIONES ====================
-  doc.addPage();
-  paginaActual++;
-  addHeaderAndFooter(doc, paginaActual, fecha, companiaName);
-
-  yPos = 22;
-
+  // ==================== TÉRMINOS Y CONDICIONES (bloque adhesivo) ====================
   const terminos = [
     {
       titulo: 'Forma de pago:',
@@ -453,7 +495,7 @@ async function construirDocumentoPDF(
   ];
 
   doc.setFontSize(9);
-  const terminosTextWidth = pageWidth - 2 * margin - 16;
+  const terminosTextWidth = contentWidth - 16;
   // 5 = padding superior de la caja (terminosBoxY = yPos - 5) + 5 = avance del encabezado
   // (yPos += 5 tras el título). Ambos deben contarse: si se omite el padding superior la
   // caja queda corta y el siguiente bloque ("Sobre Nosotros") se dibuja encima del texto.
@@ -466,10 +508,12 @@ async function construirDocumentoPDF(
   });
   terminosContentHeight += 3; // padding inferior
 
+  checkPageBreak(terminosContentHeight + 5);
+
   // Caja gris + barra azul continua (reemplaza los guiones sueltos de la versión anterior)
   const terminosBoxY = yPos - 5;
   doc.setFillColor(...COLOR_GRAY_BG);
-  doc.roundedRect(margin, terminosBoxY, pageWidth - 2 * margin, terminosContentHeight, 2, 2, 'F');
+  doc.roundedRect(margin, terminosBoxY, contentWidth, terminosContentHeight, 2, 2, 'F');
   doc.setFillColor(...COLOR_BRAND);
   doc.rect(margin, terminosBoxY, 1.5, terminosContentHeight, 'F');
 
@@ -494,9 +538,9 @@ async function construirDocumentoPDF(
     yPos += item.lineas.length * 3.5 + 2;
   });
 
-  yPos = terminosBoxY + terminosContentHeight + 4;
+  yPos = terminosBoxY + terminosContentHeight + 6;
 
-  // Sobre Nosotros — misma caja gris + barra azul
+  // ==================== SOBRE NOSOTROS + DATOS BANCARIOS (bloque adhesivo) ====================
   const datosBancarios = [
     { titulo: 'Titular:', valor: 'Su Nombre' },
     { titulo: 'Banco:', valor: 'Santander' },
@@ -507,18 +551,20 @@ async function construirDocumentoPDF(
 
   doc.setFontSize(9);
   const sobreNosotrosIntro = `En ${companiaName} nos respaldan años de experiencia brindando soluciones de seguridad electrónica confiables. Para su comodidad, estos son nuestros datos bancarios:`;
-  const introLines = doc.splitTextToSize(sobreNosotrosIntro, pageWidth - 2 * margin - 16);
+  const introLines = doc.splitTextToSize(sobreNosotrosIntro, contentWidth - 16);
 
   const notaBancariaTexto =
     'Por favor referencie el comprobante de pago con el nombre del proyecto o del cliente para una identificación ágil.';
-  const notaBancariaLines = doc.splitTextToSize(notaBancariaTexto, pageWidth - 2 * margin - 16);
+  const notaBancariaLines = doc.splitTextToSize(notaBancariaTexto, contentWidth - 16);
 
   const sobreNosotrosHeight =
     5 + introLines.length * 3.6 + 2 + datosBancarios.length * 3.6 + 1.5 + notaBancariaLines.length * 3.2 + 2;
 
+  checkPageBreak(sobreNosotrosHeight + 5);
+
   const sobreNosotrosBoxY = yPos - 5;
   doc.setFillColor(...COLOR_GRAY_BG);
-  doc.roundedRect(margin, sobreNosotrosBoxY, pageWidth - 2 * margin, sobreNosotrosHeight, 2, 2, 'F');
+  doc.roundedRect(margin, sobreNosotrosBoxY, contentWidth, sobreNosotrosHeight, 2, 2, 'F');
   doc.setFillColor(...COLOR_BRAND);
   doc.rect(margin, sobreNosotrosBoxY, 1.5, sobreNosotrosHeight, 'F');
 
@@ -550,28 +596,25 @@ async function construirDocumentoPDF(
   doc.setTextColor(100, 100, 100);
   doc.text(notaBancariaLines, margin + 8, yPos);
 
-  // ==================== PÁGINA 4: CONTACTO FINAL ====================
-  doc.addPage();
-  paginaActual++;
-  addHeaderAndFooter(doc, paginaActual, fecha, companiaName);
+  yPos = sobreNosotrosBoxY + sobreNosotrosHeight + 6;
 
-  yPos = 24;
-
-  // Mensaje completo (antes faltaba la primera oración por completo — bug corregido)
+  // ==================== CONTACTO FINAL (bloque adhesivo) ====================
   // IMPORTANTE: fontSize/font deben fijarse ANTES de splitTextToSize — si no, el ancho de
   // línea se calcula con el tamaño de fuente que haya quedado activo de la sección anterior
-  // (8pt de la nota bancaria) y el texto se desborda al dibujarse después a 11pt.
+  // y el texto se desborda al dibujarse después a 11pt.
   doc.setFontSize(11);
   doc.setFont('helvetica', 'normal');
   const contactoIntro = `Estamos listos para llevar el proyecto ${(
     proyecto.titulo || 'cotizado'
   ).toUpperCase()} a la realidad. Si tiene alguna duda o desea ajustar algún detalle, comuníquese directamente conmigo. Puede escribirme por WhatsApp y con gusto le brindaré asesoría personalizada para que tome la mejor decisión.`;
-  const contactoLines = doc.splitTextToSize(contactoIntro, pageWidth - 2 * margin - 8);
+  const contactoLines = doc.splitTextToSize(contactoIntro, contentWidth - 8);
 
   const bloqueAzulHeight = contactoLines.length * 5 + 3 + 4 + 4 + 4 + 4 + (datosCliente.correos.length > 0 ? 4 : 0) + 4;
+  const footerInfoHeight = 10 + 6;
+  checkPageBreak(bloqueAzulHeight + footerInfoHeight);
 
   doc.setFillColor(...COLOR_BRAND);
-  doc.roundedRect(margin, yPos - 5, pageWidth - 2 * margin, bloqueAzulHeight, 2, 2, 'F');
+  doc.roundedRect(margin, yPos - 5, contentWidth, bloqueAzulHeight, 2, 2, 'F');
 
   doc.setFontSize(11);
   doc.setTextColor(255, 255, 255);
@@ -579,7 +622,7 @@ async function construirDocumentoPDF(
   doc.text(contactoLines, margin + 4, yPos);
   yPos += contactoLines.length * 5 + 3;
 
-  // Nombre de quien firma la cotización (antes se imprimía literalmente el texto "Nombre del Contacto" — bug corregido)
+  // Nombre de quien firma la cotización
   doc.setFontSize(11);
   doc.setFont('helvetica', 'bold');
   doc.text(datosCliente.nombreCompleto, margin + 4, yPos);
@@ -609,8 +652,7 @@ async function construirDocumentoPDF(
     doc.text(datosCliente.telefono, pageWidth - margin - 5, yPos, { align: 'right' });
   }
 
-  // Footer info — fluye justo debajo del bloque de contacto (antes saltaba a
-  // pageHeight-50 dejando un hueco enorme en medio de la página final)
+  // Footer info — fluye justo debajo del bloque de contacto
   yPos += 10;
   doc.setFontSize(8);
   doc.setTextColor(100, 100, 100);
