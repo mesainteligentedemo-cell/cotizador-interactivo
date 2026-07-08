@@ -1,62 +1,99 @@
 'use client';
 
-import { CartItem } from '@/app/page';
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
+import { CartItem, DatosCliente, MetodoPago, Proyecto } from '@/lib/types';
+import { calcularSubtotal } from '@/lib/calculos';
 import { generarPDF } from '@/lib/generarPDF';
 import { enviarPorCorreo } from '@/lib/enviarCorreo';
 
 interface CartSummaryProps {
   cart: CartItem[];
+  moneda: 'USD' | 'MXN';
+  tipoCambio: number;
+  metodoPago: MetodoPago;
+  cliente: DatosCliente;
+  proyecto: Proyecto;
+  ocultarDescuento: boolean;
   onActualizarCantidad: (productoId: string, cantidad: number) => void;
+  onActualizarDescuento: (productoId: string, descuento: number) => void;
+  onActualizarNotas: (productoId: string, notas: string) => void;
+  onEliminarProducto: (productoId: string) => void;
   onLimpiarCarrito: () => void;
 }
 
+const TIPO_LABELS: Record<string, string> = {
+  catalogo: 'Catálogo',
+  otro: 'Otros productos',
+  manoObra: 'Mano de Obra',
+};
+
 export function CartSummary({
   cart,
+  moneda,
+  tipoCambio,
+  metodoPago,
+  cliente,
+  proyecto,
+  ocultarDescuento,
   onActualizarCantidad,
+  onActualizarDescuento,
+  onActualizarNotas,
+  onEliminarProducto,
   onLimpiarCarrito,
 }: CartSummaryProps) {
-  const [mostrarFormulario, setMostrarFormulario] = useState(false);
-  const [datosCliente, setDatosCliente] = useState({
-    nombre: 'TALLER BONAMPACK LIC. KARLA CERON',
-    empresa: '',
-    correo: '',
-    telefono: '',
-  });
   const [cargando, setCargando] = useState(false);
 
-  const subtotal = cart.reduce(
-    (sum, item) => sum + item.product.precio * item.cantidad,
-    0
+  const { subtotalMXN: subtotal, baseUSD } = useMemo(
+    () => calcularSubtotal(cart, moneda, tipoCambio),
+    [cart, moneda, tipoCambio]
   );
   const iva = subtotal * 0.16;
   const total = subtotal + iva;
+  const simbolo = moneda === 'USD' ? 'USD' : 'MXN';
 
-  const handleDescargarPDF = async () => {
+  const porTipo = useMemo(() => {
+    const grupos: Record<string, { count: number; subtotal: number }> = {};
+    cart.forEach((item) => {
+      const tipo = item.product.tipoProducto || 'catalogo';
+      const importe = item.product.precio * item.cantidad * (1 - item.descuento / 100);
+      const importeConvertido =
+        item.product.moneda === 'USD' && moneda === 'MXN'
+          ? importe * tipoCambio
+          : item.product.moneda !== 'USD' && moneda === 'USD'
+          ? importe / tipoCambio
+          : importe;
+      if (!grupos[tipo]) grupos[tipo] = { count: 0, subtotal: 0 };
+      grupos[tipo].count += 1;
+      grupos[tipo].subtotal += importeConvertido;
+    });
+    return grupos;
+  }, [cart, moneda, tipoCambio]);
+
+  const handleGuardarCotizacion = async () => {
     setCargando(true);
     try {
-      await generarPDF(cart, datosCliente, subtotal, iva, total);
+      await generarPDF(cart, cliente, proyecto, metodoPago, moneda, ocultarDescuento, subtotal, iva, total);
     } catch (error) {
-      console.error('Error descargando PDF:', error);
-      alert('Error al descargar PDF');
+      console.error('Error generando PDF:', error);
+      alert('Error al guardar la cotización');
     } finally {
       setCargando(false);
     }
   };
 
-  const handleEnviarCorreo = async () => {
-    if (!datosCliente.correo) {
-      alert('Por favor ingresa un correo electrónico');
+  const handleEnviarYGuardar = async () => {
+    if (cliente.correos.length === 0) {
+      alert('Agrega al menos un correo electrónico');
       return;
     }
 
     setCargando(true);
     try {
-      await enviarPorCorreo(cart, datosCliente, subtotal, iva, total);
-      alert('Cotización enviada correctamente');
-      setMostrarFormulario(false);
+      await enviarPorCorreo(cart, cliente, proyecto, metodoPago, moneda, ocultarDescuento, subtotal, iva, total);
+      await generarPDF(cart, cliente, proyecto, metodoPago, moneda, ocultarDescuento, subtotal, iva, total);
+      alert('Cotización enviada y guardada correctamente');
     } catch (error) {
-      console.error('Error enviando correo:', error);
+      console.error('Error enviando cotización:', error);
       alert('Error al enviar la cotización');
     } finally {
       setCargando(false);
@@ -84,7 +121,7 @@ export function CartSummary({
                       {item.product.nombre}
                     </p>
                     <button
-                      onClick={() => onActualizarCantidad(item.product.id, 0)}
+                      onClick={() => onEliminarProducto(item.product.id)}
                       className="text-red-500 hover:text-red-700 text-lg ml-2"
                     >
                       ×
@@ -93,18 +130,19 @@ export function CartSummary({
                   <div className="flex justify-between items-center text-gray-600">
                     <span>
                       ${item.product.precio.toLocaleString('es-MX')} × {item.cantidad}
+                      {!ocultarDescuento && item.descuento !== 0 ? ` (${item.descuento}%)` : ''}
                     </span>
                     <span className="font-semibold text-gray-900">
-                      ${(item.product.precio * item.cantidad).toLocaleString('es-MX')}
+                      ${(item.product.precio * item.cantidad * (1 - item.descuento / 100)).toLocaleString('es-MX', { maximumFractionDigits: 2 })}
                     </span>
                   </div>
-                  <div className="flex items-center gap-1 mt-1">
+                  {item.notas && (
+                    <p className="text-xs text-gray-500 italic mt-1">Nota: {item.notas}</p>
+                  )}
+                  <div className="flex items-center gap-1 mt-1 flex-wrap">
                     <button
                       onClick={() =>
-                        onActualizarCantidad(
-                          item.product.id,
-                          Math.max(1, item.cantidad - 1)
-                        )
+                        onActualizarCantidad(item.product.id, Math.max(1, item.cantidad - 1))
                       }
                       className="bg-gray-200 hover:bg-gray-300 px-2 py-1 rounded text-xs"
                     >
@@ -114,23 +152,43 @@ export function CartSummary({
                       type="number"
                       value={item.cantidad}
                       onChange={(e) =>
-                        onActualizarCantidad(
-                          item.product.id,
-                          parseInt(e.target.value) || 1
-                        )
+                        onActualizarCantidad(item.product.id, parseInt(e.target.value) || 1)
                       }
                       className="w-10 text-center border border-gray-300 rounded px-1 py-1 text-xs"
                       min="1"
                     />
                     <button
-                      onClick={() =>
-                        onActualizarCantidad(item.product.id, item.cantidad + 1)
-                      }
+                      onClick={() => onActualizarCantidad(item.product.id, item.cantidad + 1)}
                       className="bg-gray-200 hover:bg-gray-300 px-2 py-1 rounded text-xs"
                     >
                       +
                     </button>
+                    {!ocultarDescuento && (
+                      <input
+                        type="number"
+                        value={item.descuento}
+                        onChange={(e) =>
+                          onActualizarDescuento(item.product.id, parseFloat(e.target.value) || 0)
+                        }
+                        placeholder="Desc %"
+                        title="Descuento %"
+                        className="w-14 text-center border border-gray-300 rounded px-1 py-1 text-xs"
+                      />
+                    )}
                   </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Productos por Tipo de Precio */}
+          <div className="mb-6">
+            <h4 className="font-bold text-gray-900 text-sm mb-2">Productos por Tipo de Precio</h4>
+            <div className="space-y-1 text-sm">
+              {Object.entries(porTipo).map(([tipo, datos]) => (
+                <div key={tipo} className="flex justify-between text-gray-600">
+                  <span>{TIPO_LABELS[tipo] || tipo} ({datos.count})</span>
+                  <span>${datos.subtotal.toLocaleString('es-MX', { maximumFractionDigits: 2 })} {simbolo}</span>
                 </div>
               ))}
             </div>
@@ -139,85 +197,46 @@ export function CartSummary({
           {/* Totales */}
           <div className="space-y-2 mb-6">
             <div className="flex justify-between text-gray-700">
+              <span>Moneda:</span>
+              <span className="font-medium">{simbolo}</span>
+            </div>
+            <div className="flex justify-between text-gray-700">
+              <span>Tipo de Cambio:</span>
+              <span>${tipoCambio.toFixed(2)} MXN</span>
+            </div>
+            <div className="flex justify-between text-gray-700">
+              <span>Base USD:</span>
+              <span>${baseUSD.toLocaleString('es-MX', { maximumFractionDigits: 2 })}</span>
+            </div>
+            <div className="flex justify-between text-gray-700 pt-2 border-t border-gray-200">
               <span>Subtotal:</span>
-              <span>${subtotal.toLocaleString('es-MX')}</span>
+              <span>${subtotal.toLocaleString('es-MX', { maximumFractionDigits: 2 })} {simbolo}</span>
             </div>
             <div className="flex justify-between text-gray-700">
               <span>IVA (16%):</span>
-              <span>${iva.toLocaleString('es-MX')}</span>
+              <span>${iva.toLocaleString('es-MX', { maximumFractionDigits: 2 })} {simbolo}</span>
             </div>
-            <div className="flex justify-between text-xl font-bold text-blue-600 pt-2 border-t-2 border-gray-200">
+            <div className="flex justify-between text-xl font-bold text-[#0055a5] pt-2 border-t-2 border-gray-200">
               <span>Total:</span>
-              <span>${total.toLocaleString('es-MX')}</span>
+              <span>${total.toLocaleString('es-MX', { maximumFractionDigits: 2 })} {simbolo}</span>
             </div>
           </div>
-
-          {/* Formulario de cliente */}
-          {mostrarFormulario && (
-            <div className="mb-4 p-3 bg-gray-50 rounded border border-gray-200">
-              <h3 className="font-semibold text-sm mb-3">Datos del Cliente</h3>
-              <div className="space-y-2">
-                <input
-                  type="text"
-                  placeholder="Nombre/Empresa"
-                  value={datosCliente.nombre}
-                  onChange={(e) =>
-                    setDatosCliente({ ...datosCliente, nombre: e.target.value })
-                  }
-                  className="w-full px-2 py-1 border border-gray-300 rounded text-xs"
-                />
-                <input
-                  type="text"
-                  placeholder="Empresa (opcional)"
-                  value={datosCliente.empresa}
-                  onChange={(e) =>
-                    setDatosCliente({ ...datosCliente, empresa: e.target.value })
-                  }
-                  className="w-full px-2 py-1 border border-gray-300 rounded text-xs"
-                />
-                <input
-                  type="email"
-                  placeholder="Correo electrónico"
-                  value={datosCliente.correo}
-                  onChange={(e) =>
-                    setDatosCliente({ ...datosCliente, correo: e.target.value })
-                  }
-                  className="w-full px-2 py-1 border border-gray-300 rounded text-xs"
-                />
-                <input
-                  type="tel"
-                  placeholder="Teléfono (opcional)"
-                  value={datosCliente.telefono}
-                  onChange={(e) =>
-                    setDatosCliente({ ...datosCliente, telefono: e.target.value })
-                  }
-                  className="w-full px-2 py-1 border border-gray-300 rounded text-xs"
-                />
-              </div>
-            </div>
-          )}
 
           {/* Botones */}
           <div className="space-y-2">
             <button
-              onClick={() => setMostrarFormulario(!mostrarFormulario)}
-              className="w-full bg-gray-100 hover:bg-gray-200 text-gray-900 px-4 py-2 rounded-lg font-medium text-sm transition"
+              onClick={handleEnviarYGuardar}
+              disabled={cargando}
+              className="w-full bg-[#0055a5] hover:bg-blue-800 disabled:bg-gray-400 text-white px-4 py-2 rounded-lg font-medium text-sm transition"
             >
-              {mostrarFormulario ? 'Ocultar Datos' : 'Mostrar Datos del Cliente'}
+              {cargando ? 'Procesando...' : '✉️ Enviar y Guardar'}
             </button>
             <button
-              onClick={handleDescargarPDF}
+              onClick={handleGuardarCotizacion}
               disabled={cargando}
               className="w-full bg-green-600 hover:bg-green-700 disabled:bg-gray-400 text-white px-4 py-2 rounded-lg font-medium text-sm transition"
             >
-              {cargando ? 'Procesando...' : '📥 Descargar PDF'}
-            </button>
-            <button
-              onClick={handleEnviarCorreo}
-              disabled={cargando}
-              className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white px-4 py-2 rounded-lg font-medium text-sm transition"
-            >
-              {cargando ? 'Procesando...' : '✉️ Enviar por Correo'}
+              {cargando ? 'Procesando...' : '📥 Guardar Cotización'}
             </button>
             <button
               onClick={onLimpiarCarrito}

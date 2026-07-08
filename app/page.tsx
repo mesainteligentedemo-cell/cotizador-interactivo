@@ -5,26 +5,41 @@ import { ProductList } from '@/components/ProductList';
 import { CartSummary } from '@/components/CartSummary';
 import { Header } from '@/components/Header';
 import { FilterBar } from '@/components/FilterBar';
-
-export interface Product {
-  id: string;
-  nombre: string;
-  precio: number;
-  categoria: string;
-  proveedor: string;
-  codigo: string;
-}
-
-export interface CartItem {
-  product: Product;
-  cantidad: number;
-}
+import { VigenciaBadge } from '@/components/VigenciaBadge';
+import { MiSucursal } from '@/components/MiSucursal';
+import { ProyectoInfo } from '@/components/ProyectoInfo';
+import { DatosCliente as DatosClienteForm } from '@/components/DatosCliente';
+import { MetodoPago as MetodoPagoSelector } from '@/components/MetodoPago';
+import { MonedaSelector } from '@/components/MonedaSelector';
+import { calcularSubtotal } from '@/lib/calculos';
+import { Product, CartItem, MetodoPago, DatosCliente, Proyecto } from '@/lib/types';
 
 export default function Home() {
   const [productos] = useState<Product[]>(getProductos());
   const [cart, setCart] = useState<CartItem[]>([]);
   const [filtroCategoria, setFiltroCategoria] = useState('');
   const [busqueda, setBusqueda] = useState('');
+  const [tipoProductoFiltro, setTipoProductoFiltro] = useState<'' | 'catalogo' | 'otro' | 'manoObra'>('');
+  const [tipoPrecio, setTipoPrecio] = useState<'descuento' | 'costoGanancia'>('descuento');
+  const [ocultarDescuento, setOcultarDescuento] = useState(false);
+
+  const [metodoPago, setMetodoPago] = useState<MetodoPago>('transferencia');
+  const [moneda, setMoneda] = useState<'USD' | 'MXN'>('MXN');
+  const [tipoCambio, setTipoCambio] = useState(18.5);
+
+  const [cliente, setCliente] = useState<DatosCliente>({
+    nombreComercial: '',
+    empresa: '',
+    nombreCompleto: 'TALLER BONAMPACK LIC. KARLA CERON',
+    correos: [],
+    telefono: '',
+    rfc: '',
+  });
+
+  const [proyecto, setProyecto] = useState<Proyecto>({
+    titulo: '',
+    descripcion: '',
+  });
 
   const categorias = useMemo(
     () => Array.from(new Set(productos.map((p) => p.categoria))).sort(),
@@ -34,25 +49,41 @@ export default function Home() {
   const productosFiltrados = useMemo(() => {
     return productos.filter((p) => {
       const matchCategoria = !filtroCategoria || p.categoria === filtroCategoria;
+      const matchTipo = !tipoProductoFiltro || (p.tipoProducto || 'catalogo') === tipoProductoFiltro;
       const matchBusqueda =
         !busqueda ||
         p.nombre.toLowerCase().includes(busqueda.toLowerCase()) ||
         p.codigo.toLowerCase().includes(busqueda.toLowerCase());
-      return matchCategoria && matchBusqueda;
+      return matchCategoria && matchTipo && matchBusqueda;
     });
-  }, [productos, filtroCategoria, busqueda]);
+  }, [productos, filtroCategoria, tipoProductoFiltro, busqueda]);
 
-  const agregarAlCarrito = (producto: Product) => {
+  const { baseUSD } = useMemo(
+    () => calcularSubtotal(cart, moneda, tipoCambio),
+    [cart, moneda, tipoCambio]
+  );
+
+  const agregarAlCarrito = (
+    producto: Product,
+    cantidad: number,
+    descuento: number,
+    notas: string
+  ) => {
     setCart((prev) => {
       const existe = prev.find((item) => item.product.id === producto.id);
       if (existe) {
         return prev.map((item) =>
           item.product.id === producto.id
-            ? { ...item, cantidad: item.cantidad + 1 }
+            ? {
+                ...item,
+                cantidad: item.cantidad + cantidad,
+                descuento,
+                notas: notas || item.notas,
+              }
             : item
         );
       }
-      return [...prev, { product: producto, cantidad: 1 }];
+      return [...prev, { product: producto, cantidad, descuento, notas }];
     });
   };
 
@@ -61,13 +92,25 @@ export default function Home() {
       setCart((prev) => prev.filter((item) => item.product.id !== productoId));
     } else {
       setCart((prev) =>
-        prev.map((item) =>
-          item.product.id === productoId
-            ? { ...item, cantidad }
-            : item
-        )
+        prev.map((item) => (item.product.id === productoId ? { ...item, cantidad } : item))
       );
     }
+  };
+
+  const actualizarDescuento = (productoId: string, descuento: number) => {
+    setCart((prev) =>
+      prev.map((item) => (item.product.id === productoId ? { ...item, descuento } : item))
+    );
+  };
+
+  const actualizarNotas = (productoId: string, notas: string) => {
+    setCart((prev) =>
+      prev.map((item) => (item.product.id === productoId ? { ...item, notas } : item))
+    );
+  };
+
+  const eliminarDelCarrito = (productoId: string) => {
+    setCart((prev) => prev.filter((item) => item.product.id !== productoId));
   };
 
   const limpiarCarrito = () => {
@@ -79,28 +122,61 @@ export default function Home() {
       <Header />
 
       <div className="max-w-7xl mx-auto px-4 py-8">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+          <VigenciaBadge />
+          <MiSucursal />
+        </div>
+
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-          {/* Panel Izquierdo - Productos */}
+          {/* Panel Izquierdo - Proyecto + Filtros + Productos */}
           <div className="lg:col-span-2">
+            <ProyectoInfo proyecto={proyecto} onChange={setProyecto} />
+
             <FilterBar
               categorias={categorias}
               filtroCategoria={filtroCategoria}
               setFiltroCategoria={setFiltroCategoria}
               busqueda={busqueda}
               setBusqueda={setBusqueda}
+              tipoProductoFiltro={tipoProductoFiltro}
+              setTipoProductoFiltro={setTipoProductoFiltro}
+              tipoPrecio={tipoPrecio}
+              setTipoPrecio={setTipoPrecio}
+              ocultarDescuento={ocultarDescuento}
+              setOcultarDescuento={setOcultarDescuento}
             />
 
             <ProductList
               productos={productosFiltrados}
+              tipoPrecio={tipoPrecio}
+              ocultarDescuento={ocultarDescuento}
               onAgregarAlCarrito={agregarAlCarrito}
             />
           </div>
 
-          {/* Panel Derecho - Carrito */}
+          {/* Panel Derecho - Cliente + Pago + Moneda + Resumen */}
           <div className="lg:col-span-1">
+            <DatosClienteForm datos={cliente} onChange={setCliente} />
+            <MetodoPagoSelector valor={metodoPago} onChange={setMetodoPago} />
+            <MonedaSelector
+              moneda={moneda}
+              tipoCambio={tipoCambio}
+              baseUSD={baseUSD}
+              onChange={setMoneda}
+              onTipoCambioChange={setTipoCambio}
+            />
             <CartSummary
               cart={cart}
+              moneda={moneda}
+              tipoCambio={tipoCambio}
+              metodoPago={metodoPago}
+              cliente={cliente}
+              proyecto={proyecto}
+              ocultarDescuento={ocultarDescuento}
               onActualizarCantidad={actualizarCantidad}
+              onActualizarDescuento={actualizarDescuento}
+              onActualizarNotas={actualizarNotas}
+              onEliminarProducto={eliminarDelCarrito}
               onLimpiarCarrito={limpiarCarrito}
             />
           </div>
@@ -120,6 +196,8 @@ function getProductos(): Product[] {
       categoria: 'ALARMAS',
       proveedor: 'SYSCOM',
       codigo: 'PRO4GEN2K',
+      moneda: 'MXN',
+      tipoProducto: 'catalogo',
     },
     {
       id: '2',
@@ -128,6 +206,8 @@ function getProductos(): Product[] {
       categoria: 'ALARMAS',
       proveedor: 'SYSCOM',
       codigo: 'PL-12-12',
+      moneda: 'MXN',
+      tipoProducto: 'catalogo',
     },
     {
       id: '3',
@@ -136,6 +216,8 @@ function getProductos(): Product[] {
       categoria: 'ALARMAS',
       proveedor: 'SYSCOM',
       codigo: 'SFWST102',
+      moneda: 'MXN',
+      tipoProducto: 'catalogo',
     },
     {
       id: '4',
@@ -144,6 +226,8 @@ function getProductos(): Product[] {
       categoria: 'ALARMAS',
       proveedor: 'SYSCOM',
       codigo: 'SFWST232',
+      moneda: 'MXN',
+      tipoProducto: 'catalogo',
     },
     {
       id: '5',
@@ -152,6 +236,8 @@ function getProductos(): Product[] {
       categoria: 'ALARMAS',
       proveedor: 'SYSCOM',
       codigo: 'SFWST742',
+      moneda: 'MXN',
+      tipoProducto: 'catalogo',
     },
     {
       id: '6',
@@ -160,6 +246,8 @@ function getProductos(): Product[] {
       categoria: 'ALARMAS',
       proveedor: 'SYSCOM',
       codigo: 'PRO4GLTEM',
+      moneda: 'MXN',
+      tipoProducto: 'catalogo',
     },
     {
       id: '7',
@@ -168,6 +256,8 @@ function getProductos(): Product[] {
       categoria: 'ALARMAS',
       proveedor: 'SYSCOM',
       codigo: 'SF-70WK',
+      moneda: 'MXN',
+      tipoProducto: 'catalogo',
     },
     {
       id: '8',
@@ -176,6 +266,8 @@ function getProductos(): Product[] {
       categoria: 'ALARMAS',
       proveedor: 'SYSCOM',
       codigo: 'MN01-LTE-M',
+      moneda: 'MXN',
+      tipoProducto: 'catalogo',
     },
     {
       id: '9',
@@ -184,6 +276,8 @@ function getProductos(): Product[] {
       categoria: 'ALARMAS',
       proveedor: 'SYSCOM',
       codigo: '958',
+      moneda: 'MXN',
+      tipoProducto: 'catalogo',
     },
     {
       id: '10',
@@ -192,6 +286,8 @@ function getProductos(): Product[] {
       categoria: 'ALARMAS',
       proveedor: 'SYSCOM',
       codigo: 'SF-581A',
+      moneda: 'MXN',
+      tipoProducto: 'catalogo',
     },
 
     // ALARMA VISTA 48
@@ -202,6 +298,8 @@ function getProductos(): Product[] {
       categoria: 'ALARMA VISTA 48',
       proveedor: 'SYSCOM',
       codigo: 'VISTA48ECORF',
+      moneda: 'MXN',
+      tipoProducto: 'catalogo',
     },
     {
       id: '12',
@@ -210,6 +308,8 @@ function getProductos(): Product[] {
       categoria: 'ALARMA VISTA 48',
       proveedor: 'SYSCOM',
       codigo: '5800-PIR',
+      moneda: 'MXN',
+      tipoProducto: 'catalogo',
     },
     {
       id: '13',
@@ -218,6 +318,8 @@ function getProductos(): Product[] {
       categoria: 'ALARMA VISTA 48',
       proveedor: 'SYSCOM',
       codigo: '5816',
+      moneda: 'MXN',
+      tipoProducto: 'catalogo',
     },
 
     // ALARMA AJAX
@@ -228,6 +330,8 @@ function getProductos(): Product[] {
       categoria: 'ALARMA AJAX',
       proveedor: 'TVC',
       codigo: 'AJAX KIT STARTER',
+      moneda: 'MXN',
+      tipoProducto: 'catalogo',
     },
     {
       id: '15',
@@ -236,6 +340,8 @@ function getProductos(): Product[] {
       categoria: 'ALARMA AJAX',
       proveedor: 'TVC',
       codigo: 'AJX-SPACE',
+      moneda: 'MXN',
+      tipoProducto: 'catalogo',
     },
     {
       id: '16',
@@ -244,6 +350,8 @@ function getProductos(): Product[] {
       categoria: 'ALARMA AJAX',
       proveedor: 'TVC',
       codigo: 'AJX-KEYPAD',
+      moneda: 'MXN',
+      tipoProducto: 'catalogo',
     },
 
     // ALARMA DAHUA
@@ -254,6 +362,8 @@ function getProductos(): Product[] {
       categoria: 'ALARMA DAHUA',
       proveedor: 'TVC',
       codigo: 'DAHUA DHI-ARC3000H-FW2',
+      moneda: 'MXN',
+      tipoProducto: 'catalogo',
     },
     {
       id: '18',
@@ -262,6 +372,8 @@ function getProductos(): Product[] {
       categoria: 'ALARMA DAHUA',
       proveedor: 'TVC',
       codigo: 'DAHUA DHI-ARD1233-W2',
+      moneda: 'MXN',
+      tipoProducto: 'catalogo',
     },
 
     // CÁMARAS
@@ -272,6 +384,8 @@ function getProductos(): Product[] {
       categoria: 'CÁMARAS',
       proveedor: 'TVC',
       codigo: 'DAH3950025',
+      moneda: 'MXN',
+      tipoProducto: 'catalogo',
     },
     {
       id: '20',
@@ -280,6 +394,8 @@ function getProductos(): Product[] {
       categoria: 'CÁMARAS',
       proveedor: 'TVC',
       codigo: 'DHT0290034',
+      moneda: 'MXN',
+      tipoProducto: 'catalogo',
     },
     {
       id: '21',
@@ -288,6 +404,8 @@ function getProductos(): Product[] {
       categoria: 'CÁMARAS',
       proveedor: 'TVC',
       codigo: 'SCA395014',
+      moneda: 'MXN',
+      tipoProducto: 'catalogo',
     },
     {
       id: '22',
@@ -296,6 +414,8 @@ function getProductos(): Product[] {
       categoria: 'CÁMARAS',
       proveedor: 'SYSCOM',
       codigo: 'B8-TURBO-XG2W',
+      moneda: 'MXN',
+      tipoProducto: 'catalogo',
     },
     {
       id: '23',
@@ -304,6 +424,8 @@ function getProductos(): Product[] {
       categoria: 'CÁMARAS',
       proveedor: 'SYSCOM',
       codigo: 'DS-2CV2041G2-IDW(D)',
+      moneda: 'MXN',
+      tipoProducto: 'catalogo',
     },
 
     // DVR/NVR
@@ -314,6 +436,8 @@ function getProductos(): Product[] {
       categoria: 'DVR/NVR',
       proveedor: 'TVC',
       codigo: 'DHT0370012',
+      moneda: 'MXN',
+      tipoProducto: 'catalogo',
     },
     {
       id: '25',
@@ -322,6 +446,8 @@ function getProductos(): Product[] {
       categoria: 'DVR/NVR',
       proveedor: 'TVC',
       codigo: 'DAD499004',
+      moneda: 'MXN',
+      tipoProducto: 'catalogo',
     },
     {
       id: '26',
@@ -330,6 +456,8 @@ function getProductos(): Product[] {
       categoria: 'DVR/NVR',
       proveedor: 'TVC',
       codigo: 'DAHUA XVR5108HS-I3',
+      moneda: 'MXN',
+      tipoProducto: 'catalogo',
     },
 
     // DISCOS DUROS
@@ -340,6 +468,8 @@ function getProductos(): Product[] {
       categoria: 'DISCOS DUROS',
       proveedor: 'TVC',
       codigo: 'TVM110069',
+      moneda: 'MXN',
+      tipoProducto: 'catalogo',
     },
     {
       id: '28',
@@ -348,6 +478,8 @@ function getProductos(): Product[] {
       categoria: 'DISCOS DUROS',
       proveedor: 'TVC',
       codigo: 'WDC1490012',
+      moneda: 'MXN',
+      tipoProducto: 'catalogo',
     },
     {
       id: '29',
@@ -356,6 +488,8 @@ function getProductos(): Product[] {
       categoria: 'DISCOS DUROS',
       proveedor: 'TVC',
       codigo: 'WDC1490005',
+      moneda: 'MXN',
+      tipoProducto: 'catalogo',
     },
 
     // ACCESORIOS
@@ -366,6 +500,8 @@ function getProductos(): Product[] {
       categoria: 'ACCESORIOS',
       proveedor: 'TVC',
       codigo: 'TVN0830052',
+      moneda: 'MXN',
+      tipoProducto: 'catalogo',
     },
     {
       id: '31',
@@ -374,6 +510,8 @@ function getProductos(): Product[] {
       categoria: 'ACCESORIOS',
       proveedor: 'TVC',
       codigo: 'DAHUA PFS3006-4ET-36',
+      moneda: 'MXN',
+      tipoProducto: 'catalogo',
     },
     {
       id: '32',
@@ -382,6 +520,8 @@ function getProductos(): Product[] {
       categoria: 'ACCESORIOS',
       proveedor: 'TVC',
       codigo: 'TVD119047',
+      moneda: 'MXN',
+      tipoProducto: 'catalogo',
     },
     {
       id: '33',
@@ -390,6 +530,8 @@ function getProductos(): Product[] {
       categoria: 'ACCESORIOS',
       proveedor: 'TVC',
       codigo: 'DAHUA DH-PFM350-900',
+      moneda: 'MXN',
+      tipoProducto: 'catalogo',
     },
 
     // CONTROL DE ACCESO
@@ -400,6 +542,8 @@ function getProductos(): Product[] {
       categoria: 'CONTROL DE ACCESO',
       proveedor: 'TVC',
       codigo: 'TVB348020',
+      moneda: 'MXN',
+      tipoProducto: 'catalogo',
     },
     {
       id: '35',
@@ -408,6 +552,8 @@ function getProductos(): Product[] {
       categoria: 'CONTROL DE ACCESO',
       proveedor: 'TVC',
       codigo: 'ZTA0610006',
+      moneda: 'MXN',
+      tipoProducto: 'catalogo',
     },
     {
       id: '36',
@@ -416,9 +562,11 @@ function getProductos(): Product[] {
       categoria: 'CONTROL DE ACCESO',
       proveedor: 'TVC',
       codigo: 'ZKT0680042',
+      moneda: 'MXN',
+      tipoProducto: 'catalogo',
     },
 
-    // SERVICIOS
+    // SERVICIOS / MANO DE OBRA
     {
       id: '37',
       nombre: 'Póliza Mensual Mantenimiento y Monitoreo',
@@ -426,6 +574,8 @@ function getProductos(): Product[] {
       categoria: 'SERVICIOS',
       proveedor: 'N/A',
       codigo: 'POL-MES',
+      moneda: 'MXN',
+      tipoProducto: 'manoObra',
     },
     {
       id: '38',
@@ -434,6 +584,8 @@ function getProductos(): Product[] {
       categoria: 'SERVICIOS',
       proveedor: 'N/A',
       codigo: 'POL-TRIM',
+      moneda: 'MXN',
+      tipoProducto: 'manoObra',
     },
     {
       id: '39',
@@ -442,6 +594,38 @@ function getProductos(): Product[] {
       categoria: 'SERVICIOS',
       proveedor: 'N/A',
       codigo: 'INST-CANCUN',
+      moneda: 'MXN',
+      tipoProducto: 'manoObra',
+    },
+    {
+      id: '40',
+      nombre: 'Mano de obra - Instalación y configuración por técnico especializado (por hora)',
+      precio: 350,
+      categoria: 'SERVICIOS',
+      proveedor: 'N/A',
+      codigo: 'MO-HORA',
+      moneda: 'MXN',
+      tipoProducto: 'manoObra',
+    },
+    {
+      id: '41',
+      nombre: 'Material eléctrico y cableado adicional para instalación',
+      precio: 850,
+      categoria: 'ACCESORIOS',
+      proveedor: 'N/A',
+      codigo: 'OTR-CABLE',
+      moneda: 'MXN',
+      tipoProducto: 'otro',
+    },
+    {
+      id: '42',
+      nombre: 'Canaleta y ductería para obra civil ligera',
+      precio: 420,
+      categoria: 'ACCESORIOS',
+      proveedor: 'N/A',
+      codigo: 'OTR-CANALETA',
+      moneda: 'MXN',
+      tipoProducto: 'otro',
     },
   ];
 }

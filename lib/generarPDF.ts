@@ -1,16 +1,22 @@
 import jsPDF from 'jspdf';
-import { CartItem } from '@/app/page';
+import { CartItem, DatosCliente, MetodoPago, Proyecto } from './types';
 
-interface DatosCliente {
-  nombre: string;
-  empresa: string;
-  correo: string;
-  telefono: string;
-}
+const METODO_PAGO_LABELS: Record<MetodoPago, string> = {
+  tarjeta_credito: 'Tarjeta de Crédito',
+  tarjeta_debito: 'Tarjeta de Débito',
+  contado: 'Contado',
+  cheque: 'Cheque',
+  transferencia: 'Transferencia',
+  credito: 'Crédito',
+};
 
 export async function generarPDF(
   cart: CartItem[],
   datosCliente: DatosCliente,
+  proyecto: Proyecto,
+  metodoPago: MetodoPago,
+  moneda: 'USD' | 'MXN',
+  ocultarDescuento: boolean,
   subtotal: number,
   iva: number,
   total: number
@@ -25,17 +31,18 @@ export async function generarPDF(
   const pageHeight = doc.internal.pageSize.getHeight();
   const margin = 20;
   let yPos = margin;
+  const simbolo = moneda === 'USD' ? 'USD' : 'MXN';
 
   // ==================== ENCABEZADO ====================
   doc.setTextColor(0, 0, 0);
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(18);
-  doc.text('Cotización', pageWidth / 2, yPos, { align: 'center' });
+  doc.text(proyecto.titulo || 'Cotización', pageWidth / 2, yPos, { align: 'center' });
   yPos += 8;
 
   doc.setFontSize(11);
   doc.setFont('helvetica', 'normal');
-  doc.text(datosCliente.nombre, pageWidth / 2, yPos, { align: 'center' });
+  doc.text(datosCliente.nombreCompleto, pageWidth / 2, yPos, { align: 'center' });
   yPos += 12;
 
   // ==================== DATOS DEL CLIENTE ====================
@@ -46,13 +53,18 @@ export async function generarPDF(
 
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(9);
-  doc.text(`${datosCliente.empresa || datosCliente.nombre}`, margin, yPos);
+  doc.text(`${datosCliente.empresa || datosCliente.nombreCompleto}`, margin, yPos);
   yPos += 4;
-  doc.text(`${datosCliente.nombre}`, margin, yPos);
+  doc.text(`${datosCliente.nombreCompleto}`, margin, yPos);
   yPos += 4;
 
-  if (datosCliente.correo) {
-    doc.text(`${datosCliente.correo}`, margin, yPos);
+  if (datosCliente.rfc) {
+    doc.text(`RFC: ${datosCliente.rfc}`, margin, yPos);
+    yPos += 4;
+  }
+
+  if (datosCliente.correos.length > 0) {
+    doc.text(`${datosCliente.correos.join(', ')}`, margin, yPos);
     yPos += 4;
   }
 
@@ -74,15 +86,14 @@ export async function generarPDF(
   doc.text(`Vigencia: 30 días (${fecha} al ${fechaVencimiento})`, margin, yPos);
   yPos += 8;
 
-  // ==================== INTRODUCCIÓN ====================
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(10);
-  const introduccion = doc.splitTextToSize(
-    `Estimado cliente,\n\nTe presentamos esta cotización con los productos y servicios seleccionados para tu proyecto. Hemos cuidado cada detalle para asegurar la mejor relación calidad-precio.`,
-    pageWidth - 2 * margin
-  );
-  doc.text(introduccion, margin, yPos);
-  yPos += introduccion.length * 4 + 3;
+  // ==================== DESCRIPCIÓN DEL PROYECTO ====================
+  if (proyecto.descripcion) {
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(10);
+    const descripcion = doc.splitTextToSize(proyecto.descripcion, pageWidth - 2 * margin);
+    doc.text(descripcion, margin, yPos);
+    yPos += descripcion.length * 4 + 3;
+  }
 
   // ==================== TABLA DE PRODUCTOS ====================
   yPos += 2;
@@ -99,11 +110,10 @@ export async function generarPDF(
   const startX = margin;
   const headerY = yPos;
 
-  // Encabezados de tabla
-  doc.setFillColor(240, 240, 240);
+  doc.setFillColor(0, 85, 165);
+  doc.setTextColor(255, 255, 255);
   doc.rect(startX, headerY - 4, pageWidth - 2 * margin, 6, 'F');
 
-  doc.setTextColor(0, 0, 0);
   doc.text('CANT.', startX + 2, headerY);
   doc.text('DESCRIPCIÓN', startX + colWidths.cant + 5, headerY);
   doc.text('P. UNITARIO', startX + colWidths.cant + colWidths.desc + 5, headerY);
@@ -111,7 +121,6 @@ export async function generarPDF(
 
   yPos += 8;
 
-  // Filas de productos
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(9);
   doc.setTextColor(0, 0, 0);
@@ -125,23 +134,29 @@ export async function generarPDF(
     const cantidad = item.cantidad.toString();
     const nombre = item.product.nombre;
     const codigo = item.product.codigo ? ` (${item.product.codigo})` : '';
-    const descripcion = doc.splitTextToSize(`${nombre}${codigo}`, colWidths.desc - 5);
+    const notaTexto = item.notas ? `\nNota: ${item.notas}` : '';
+    const precioUnitarioFinal = item.product.precio * (1 - item.descuento / 100);
+    const importeLinea = precioUnitarioFinal * item.cantidad;
 
-    const precioUnitario = `$${item.product.precio.toLocaleString('es-MX')}`;
-    const montoSubtotal = `$${(item.product.precio * item.cantidad).toLocaleString('es-MX')}`;
+    const descuentoTexto = !ocultarDescuento && item.descuento !== 0 ? ` [Desc: ${item.descuento}%]` : '';
+    const descripcion = doc.splitTextToSize(
+      `${nombre}${codigo}${descuentoTexto}${notaTexto}`,
+      colWidths.desc - 5
+    );
 
-    // Dibuja las filas con altura variable según descripción
+    const precioUnitarioTexto = `$${precioUnitarioFinal.toLocaleString('es-MX', { maximumFractionDigits: 2 })}`;
+    const montoSubtotal = `$${importeLinea.toLocaleString('es-MX', { maximumFractionDigits: 2 })}`;
+
     const rowHeight = Math.max(5, descripcion.length * 3.5);
 
     doc.text(cantidad, startX + 5, yPos);
     doc.text(descripcion, startX + colWidths.cant + 5, yPos);
-    doc.text(precioUnitario, startX + colWidths.cant + colWidths.desc + 5, yPos, { align: 'right' });
+    doc.text(precioUnitarioTexto, startX + colWidths.cant + colWidths.desc + 5, yPos, { align: 'right' });
     doc.text(montoSubtotal, startX + colWidths.cant + colWidths.desc + colWidths.unitario + 10, yPos, { align: 'right' });
 
     yPos += rowHeight + 2;
   });
 
-  // Línea separadora
   yPos += 2;
   doc.setDrawColor(150, 150, 150);
   doc.line(startX, yPos, pageWidth - margin, yPos);
@@ -154,21 +169,20 @@ export async function generarPDF(
   const totalsX = pageWidth - margin - 40;
 
   doc.text('Subtotal:', totalsX - 30, yPos, { align: 'right' });
-  doc.text(`$${subtotal.toLocaleString('es-MX')} MXN`, pageWidth - margin - 5, yPos, { align: 'right' });
+  doc.text(`$${subtotal.toLocaleString('es-MX', { maximumFractionDigits: 2 })} ${simbolo}`, pageWidth - margin - 5, yPos, { align: 'right' });
   yPos += 5;
 
   doc.text('IVA (16%):', totalsX - 30, yPos, { align: 'right' });
-  doc.text(`$${iva.toLocaleString('es-MX')} MXN`, pageWidth - margin - 5, yPos, { align: 'right' });
+  doc.text(`$${iva.toLocaleString('es-MX', { maximumFractionDigits: 2 })} ${simbolo}`, pageWidth - margin - 5, yPos, { align: 'right' });
   yPos += 5;
 
-  // Total con fondo
-  doc.setFillColor(30, 58, 138);
+  doc.setFillColor(0, 85, 165);
   doc.setTextColor(255, 255, 255);
   doc.rect(totalsX - 35, yPos - 3, 75, 6, 'F');
 
   doc.setFont('helvetica', 'bold');
   doc.text('TOTAL:', totalsX - 30, yPos, { align: 'right' });
-  doc.text(`$${total.toLocaleString('es-MX')} MXN`, pageWidth - margin - 5, yPos, { align: 'right' });
+  doc.text(`$${total.toLocaleString('es-MX', { maximumFractionDigits: 2 })} ${simbolo}`, pageWidth - margin - 5, yPos, { align: 'right' });
   yPos += 10;
 
   // ==================== MÉTODO DE PAGO Y TÉRMINOS ====================
@@ -180,7 +194,7 @@ export async function generarPDF(
 
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(9);
-  doc.text('Transferencia Bancaria', margin, yPos);
+  doc.text(METODO_PAGO_LABELS[metodoPago], margin, yPos);
   yPos += 5;
 
   doc.setFont('helvetica', 'bold');
@@ -228,7 +242,6 @@ export async function generarPDF(
   doc.setTextColor(100, 100, 100);
   doc.text('Los precios en esta cotización pueden variar según disponibilidad y tipo de cambio.', margin, pageHeight - 12);
 
-  // Descargar PDF
-  const nombreArchivo = `Cotizacion_${datosCliente.nombre.replace(/\s+/g, '_')}_${fecha.replace(/\//g, '-')}.pdf`;
+  const nombreArchivo = `Cotizacion_${datosCliente.nombreCompleto.replace(/\s+/g, '_')}_${fecha.replace(/\//g, '-')}.pdf`;
   doc.save(nombreArchivo);
 }
