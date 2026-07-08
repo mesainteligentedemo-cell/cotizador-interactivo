@@ -3,9 +3,18 @@
 import { useState, useMemo } from 'react';
 import { CartItem, DatosCliente, MetodoPago, Proyecto } from '@/lib/types';
 import { calcularSubtotal } from '@/lib/calculos';
-import { generarPDF } from '@/lib/generarPDF';
+import { generarPDF, generarPDFBlob } from '@/lib/generarPDF';
 import { enviarPorCorreo } from '@/lib/enviarCorreo';
 import { guardarEnSheets } from '@/lib/guardarCotizacion';
+
+const METODO_PAGO_LABELS: Record<MetodoPago, string> = {
+  tarjeta_credito: 'Tarjeta de Crédito',
+  tarjeta_debito: 'Tarjeta de Débito',
+  contado: 'Contado',
+  cheque: 'Cheque',
+  transferencia: 'Transferencia',
+  credito: 'Crédito',
+};
 
 interface CartSummaryProps {
   cart: CartItem[];
@@ -149,12 +158,66 @@ export function CartSummary({
       errores.push(`Google Sheets: ${mensaje}`);
     }
 
+    // Genera el PDF en memoria (blob), lo descarga y abre el cliente de correo predeterminado
+    // (Outlook, etc.) con el destinatario/asunto/cuerpo pre-llenados. Nota: por restricciones
+    // de seguridad de los navegadores, un enlace mailto: NO puede adjuntar archivos de forma
+    // automática — el PDF queda descargado y listo para arrastrarlo al correo antes de enviarlo.
+    let pdfObjectUrl: string | null = null;
     try {
-      await generarPDF(cart, cliente, proyecto, metodoPago, moneda, ocultarDescuento, subtotal, iva, total);
+      const { blob, nombreArchivo } = await generarPDFBlob(
+        cart,
+        cliente,
+        proyecto,
+        metodoPago,
+        moneda,
+        ocultarDescuento,
+        subtotal,
+        iva,
+        total
+      );
+
+      pdfObjectUrl = URL.createObjectURL(blob);
+
+      const descargaLink = document.createElement('a');
+      descargaLink.href = pdfObjectUrl;
+      descargaLink.download = nombreArchivo;
+      document.body.appendChild(descargaLink);
+      descargaLink.click();
+      document.body.removeChild(descargaLink);
+
+      // Pequeña pausa para que el navegador confirme la descarga antes de intentar
+      // abrir el cliente de correo (evita que ambas acciones compitan en el mismo tick).
+      await new Promise((resolve) => setTimeout(resolve, 400));
+
+      const fechaVigencia = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toLocaleDateString('es-MX');
+      const asunto = `Cotización - ${cliente.nombreCompleto}`;
+      const cuerpo =
+        `Estimado(a) ${cliente.nombreCompleto},\n\n` +
+        `Adjunto encontrará su cotización con los siguientes detalles:\n\n` +
+        `- Moneda: ${simbolo}\n` +
+        `- Total: $${total.toLocaleString('es-MX', { maximumFractionDigits: 2 })} ${simbolo}\n` +
+        `- Vigencia: 30 días (hasta el ${fechaVigencia})\n` +
+        `- Método de pago: ${METODO_PAGO_LABELS[metodoPago]}\n\n` +
+        `El PDF de la cotización (${nombreArchivo}) se descargó en tu carpeta de Descargas; ` +
+        `solo adjúntalo a este correo antes de enviarlo.\n\n` +
+        `Quedamos atentos a cualquier pregunta.\n\nSaludos.`;
+
+      const mailtoLink = `mailto:${cliente.correos[0]}?subject=${encodeURIComponent(asunto)}&body=${encodeURIComponent(cuerpo)}`;
+
+      const mailtoAnchor = document.createElement('a');
+      mailtoAnchor.href = mailtoLink;
+      document.body.appendChild(mailtoAnchor);
+      mailtoAnchor.click();
+      document.body.removeChild(mailtoAnchor);
     } catch (error) {
       console.error('Error generando PDF:', error);
       const mensaje = error instanceof Error ? error.message : 'error desconocido';
       errores.push(`PDF: ${mensaje}`);
+    } finally {
+      if (pdfObjectUrl) {
+        const urlToRevoke = pdfObjectUrl;
+        setTimeout(() => URL.revokeObjectURL(urlToRevoke), 2000);
+      }
     }
 
     setCargando(false);
@@ -162,8 +225,8 @@ export function CartSummary({
     if (errores.length === 0) {
       alert(
         correoSandbox
-          ? 'Cotización guardada correctamente. Nota: el correo se envió en modo de prueba (RESEND_API_KEY no configurada), no llegó realmente al cliente.'
-          : 'Cotización enviada y guardada correctamente'
+          ? 'Cotización guardada correctamente. PDF descargado y Outlook abierto con el borrador listo. Nota: el correo automático se envió en modo de prueba (RESEND_API_KEY no configurada), no llegó realmente al cliente.'
+          : 'Cotización enviada y guardada correctamente. PDF descargado y Outlook abierto con el borrador listo — adjunta el PDF desde tu carpeta de Descargas.'
       );
     } else {
       alert(`Se completó parcialmente. Revisa lo siguiente:\n\n${errores.join('\n')}`);
