@@ -60,36 +60,50 @@ export async function generarPDF(
   // ==================== PÁGINA 1: PORTADA ====================
   addHeaderAndFooter(doc, 1, 4, fecha, companiaName);
 
-  let yPos = 30;
+  let yPos = 28;
 
   // Logo placeholder (rectángulo con iniciales)
+  const iniciales = (companiaName || 'MI')
+    .split(' ')
+    .slice(0, 2)
+    .map((word) => word[0])
+    .join('')
+    .toUpperCase();
+
   doc.setFillColor(0, 85, 165);
   doc.rect(margin, yPos, 15, 15, 'F');
-  doc.setFontSize(10);
+  doc.setFontSize(9);
   doc.setTextColor(255, 255, 255);
   doc.setFont('helvetica', 'bold');
-  doc.text('MI', margin + 7.5, yPos + 10, { align: 'center' });
+  doc.text(iniciales, margin + 7.5, yPos + 10, { align: 'center' });
   yPos += 20;
 
-  // Título principal
-  doc.setFontSize(14);
+  // Título principal - empresa (grande y azul)
+  doc.setFontSize(13);
   doc.setTextColor(0, 85, 165);
   doc.setFont('helvetica', 'bold');
   doc.text((companiaName || 'MI EMPRESA').toUpperCase(), pageWidth / 2, yPos, { align: 'center' });
-  yPos += 6;
+  yPos += 5;
 
-  // Contacto
-  doc.setFontSize(9);
+  // Contacto del vendedor/empresa
+  doc.setFontSize(8);
   doc.setTextColor(80, 80, 80);
   doc.setFont('helvetica', 'normal');
   if (datosCliente.correos.length > 0) {
     doc.text(datosCliente.correos.join(', '), pageWidth / 2, yPos, { align: 'center' });
-    yPos += 4;
+    yPos += 3;
   }
   if (datosCliente.telefono) {
     doc.text(`Tel: ${datosCliente.telefono}`, pageWidth / 2, yPos, { align: 'center' });
+    yPos += 3;
   }
-  yPos += 10;
+
+  // RFC y contacto adicional
+  if (datosCliente.rfc) {
+    doc.text(`RFC: ${datosCliente.rfc}`, pageWidth / 2, yPos, { align: 'center' });
+    yPos += 3;
+  }
+  yPos += 5;
 
   // Bloque azul con fecha
   doc.setFillColor(0, 85, 165);
@@ -305,15 +319,15 @@ export async function generarPDF(
   yPos = 30;
 
   // Términos y Condiciones
-  const leftBorderX = margin + 3;
+  const leftBorderX = margin + 1;
   doc.setDrawColor(0, 85, 165);
-  doc.setLineWidth(1.5);
+  doc.setLineWidth(2.5);
+  doc.line(leftBorderX, yPos - 2, leftBorderX, yPos + 80);
 
   doc.setFontSize(12);
   doc.setTextColor(0, 85, 165);
   doc.setFont('helvetica', 'bold');
   doc.text('Términos y Condiciones', margin + 8, yPos);
-  doc.line(leftBorderX, yPos - 3, leftBorderX, yPos + 3);
   yPos += 7;
 
   const terminos = [
@@ -331,11 +345,14 @@ export async function generarPDF(
   doc.setFont('helvetica', 'normal');
   doc.setLineWidth(0.5);
 
-  terminos.forEach((item, index) => {
+  terminos.forEach((item) => {
     if (yPos > pageHeight - 40) {
       doc.addPage();
       addHeaderAndFooter(doc, 3, 4, fecha, companiaName);
       yPos = 30;
+      doc.setDrawColor(0, 85, 165);
+      doc.setLineWidth(2.5);
+      doc.line(leftBorderX, yPos, leftBorderX, yPos + 80);
     }
 
     doc.setFont('helvetica', 'bold');
@@ -346,18 +363,19 @@ export async function generarPDF(
     const lineas = doc.splitTextToSize(item.texto, pageWidth - 2 * margin - 8);
     doc.text(lineas, margin + 8, yPos);
     yPos += lineas.length * 3.5 + 3;
-
-    doc.line(leftBorderX, yPos - 2, leftBorderX, yPos + 2);
   });
 
-  yPos += 5;
+  yPos += 8;
 
   // Sobre Nosotros
+  doc.setDrawColor(0, 85, 165);
+  doc.setLineWidth(2.5);
+  doc.line(leftBorderX, yPos - 2, leftBorderX, yPos + 50);
+
   doc.setFontSize(12);
   doc.setTextColor(0, 85, 165);
   doc.setFont('helvetica', 'bold');
   doc.text('Sobre Nosotros', margin + 8, yPos);
-  doc.line(leftBorderX, yPos - 3, leftBorderX, yPos + 3);
   yPos += 7;
 
   doc.setFontSize(9);
