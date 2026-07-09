@@ -177,28 +177,28 @@ async function construirDocumentoPDF(
   doc.setTextColor(255, 255, 255);
   doc.setFont('helvetica', 'bold');
   doc.text(iniciales || 'MI', margin + 7.5, yPos + 10, { align: 'center' });
-  yPos += 17;
+  yPos += 24;
 
   // Título principal (nombre de la compañía) — oscuro, no azul, como en la referencia
   doc.setFontSize(14);
   doc.setTextColor(...COLOR_TEXT);
   doc.setFont('helvetica', 'bold');
   doc.text((companiaName || 'MI EMPRESA').toUpperCase(), pageWidth / 2, yPos, { align: 'center' });
-  yPos += 6;
+  yPos += 15;
 
   // Contacto — fijo, siempre los mismos datos de la empresa que emite (HEADER_*).
   doc.setFontSize(9);
   doc.setTextColor(80, 80, 80);
   doc.setFont('helvetica', 'normal');
   doc.text(HEADER_EMAILS, pageWidth / 2, yPos, { align: 'center' });
-  yPos += 5;
+  yPos += 14;
   doc.text(`Tel: ${HEADER_TELEFONO}`, pageWidth / 2, yPos, { align: 'center' });
-  yPos += 5;
+  yPos += 14;
   doc.setFontSize(8);
   doc.setTextColor(...COLOR_GRAY_LABEL);
   doc.text(`RFC: ${HEADER_RFC}`, pageWidth / 2, yPos, { align: 'center' });
-  yPos += 5;
-  yPos += 4;
+  yPos += 14;
+  yPos += 12;
 
   // Bloque azul con fecha
   doc.setFillColor(...COLOR_BRAND);
@@ -208,7 +208,7 @@ async function construirDocumentoPDF(
   doc.setFont('helvetica', 'bold');
   doc.text('COTIZACIÓN', margin + 5, yPos + 5);
   doc.text(`Fecha: ${fecha}`, pageWidth - margin - 5, yPos + 5, { align: 'right' });
-  yPos += 12;
+  yPos += 22;
 
   // Sección Cliente — caja gris. Se calcula la altura primero y se mantiene unida.
   const nombreClienteMostrar = (
@@ -217,10 +217,10 @@ async function construirDocumentoPDF(
     datosCliente.nombreCompleto
   ).toUpperCase();
 
-  const clienteBoxHeight = 5 + 5 + (datosCliente.telefono ? 4 : 0) + 4;
-  checkPageBreak(clienteBoxHeight + 4);
+  const clienteBoxHeight = 14 + 14 + (datosCliente.telefono ? 12 : 0) + 15;
+  checkPageBreak(clienteBoxHeight + 12);
 
-  const clienteBoxY = yPos - 3;
+  const clienteBoxY = yPos - 6;
   doc.setFillColor(...COLOR_GRAY_BG);
   doc.roundedRect(margin, clienteBoxY, contentWidth, clienteBoxHeight, 2, 2, 'F');
 
@@ -228,23 +228,23 @@ async function construirDocumentoPDF(
   doc.setTextColor(...COLOR_GRAY_LABEL);
   doc.setFont('helvetica', 'bold');
   doc.text('CLIENTE', margin + 5, yPos);
-  yPos += 5;
+  yPos += 14;
 
   doc.setFontSize(12);
   doc.setTextColor(...COLOR_TEXT);
   doc.setFont('helvetica', 'bold');
   doc.text(nombreClienteMostrar, margin + 5, yPos);
-  yPos += 5;
+  yPos += 14;
 
   doc.setFontSize(9);
   doc.setFont('helvetica', 'normal');
   doc.setTextColor(80, 80, 80);
   if (datosCliente.telefono) {
     doc.text(`Tel: ${datosCliente.telefono}`, margin + 5, yPos);
-    yPos += 4;
+    yPos += 12;
   }
 
-  yPos = clienteBoxY + clienteBoxHeight + 8;
+  yPos = clienteBoxY + clienteBoxHeight + 10;
 
   // Narrativa del proyecto (bloque de texto — puede saltar de página si es muy largo)
   doc.setFontSize(10);
@@ -252,9 +252,9 @@ async function construirDocumentoPDF(
   doc.setFont('helvetica', 'normal');
   const narrativa = `Estimada ${datosCliente.nombreCompleto},\nEs un gusto saludarle en nombre de ${companiaName}. Hemos preparado con especial atención esta propuesta para ${proyecto.titulo || 'su proyecto'}, pensando en un sistema que combine tecnología de punta, confiabilidad y la tranquilidad que su proyecto merece.`;
   const narrativaLines = doc.splitTextToSize(narrativa, contentWidth);
-  checkPageBreak(narrativaLines.length * 3.8 + 2);
+  checkPageBreak(narrativaLines.length * 3.8 + 8);
   doc.text(narrativaLines, margin, yPos);
-  yPos += narrativaLines.length * 3.8 + 3;
+  yPos += narrativaLines.length * 3.8 + 10;
 
   // Título proyecto + descripción (mantenidos juntos con su primera línea)
   doc.setFontSize(14);
@@ -265,20 +265,20 @@ async function construirDocumentoPDF(
     doc.setFont('helvetica', 'normal');
     descripcionLines = doc.splitTextToSize(proyecto.descripcion, contentWidth);
   }
-  checkPageBreak(6 + descripcionLines.length * 3.8 + 2);
+  checkPageBreak(6 + descripcionLines.length * 3.8 + 8);
 
   doc.setFontSize(14);
   doc.setTextColor(...COLOR_BRAND);
   doc.setFont('helvetica', 'bold');
   doc.text((proyecto.titulo || 'PROYECTO').toUpperCase(), margin, yPos);
-  yPos += 5;
+  yPos += 10;
 
   if (descripcionLines.length > 0) {
     doc.setFontSize(10);
     doc.setTextColor(...COLOR_TEXT_SOFT);
     doc.setFont('helvetica', 'normal');
     doc.text(descripcionLines, margin, yPos);
-    yPos += descripcionLines.length * 3.8 + 7;
+    yPos += descripcionLines.length * 3.8 + 10;
   }
 
   // Beneficios Clave — caja azul claro. Bloque adhesivo (no se parte).
@@ -288,10 +288,10 @@ async function construirDocumentoPDF(
     'Cableado certificado para exterior',
     'Instalación profesional especializada',
   ];
-  const beneficiosBoxHeight = 5 + beneficios.length * 3.5 + 2;
-  checkPageBreak(beneficiosBoxHeight + 3);
+  const beneficiosBoxHeight = 14 + beneficios.length * 9 + 11;
+  checkPageBreak(beneficiosBoxHeight + 8);
 
-  const beneficiosBoxY = yPos - 3;
+  const beneficiosBoxY = yPos - 6;
   doc.setFillColor(...COLOR_BRAND_LIGHT);
   doc.roundedRect(margin, beneficiosBoxY, contentWidth, beneficiosBoxHeight, 2, 2, 'F');
 
@@ -299,7 +299,7 @@ async function construirDocumentoPDF(
   doc.setFont('helvetica', 'bold');
   doc.setTextColor(...COLOR_BRAND);
   doc.text('Beneficios Clave', margin + 5, yPos);
-  yPos += 4;
+  yPos += 12;
 
   doc.setFontSize(9);
   doc.setFont('helvetica', 'normal');
@@ -312,9 +312,9 @@ async function construirDocumentoPDF(
     doc.line(margin + 5.2, yPos + 0.2, margin + 7.5, yPos - 3);
     doc.setTextColor(...COLOR_TEXT_SOFT);
     doc.text(beneficio, margin + 10, yPos);
-    yPos += 3.5;
+    yPos += 9;
   });
-  yPos = beneficiosBoxY + beneficiosBoxHeight + 8;
+  yPos = beneficiosBoxY + beneficiosBoxHeight + 18;
 
   // ==================== TABLA DE PRODUCTOS (flujo dinámico) ====================
   const colWidths = {
@@ -347,9 +347,9 @@ async function construirDocumentoPDF(
 
   // Aseguramos que el encabezado de la tabla nunca quede huérfano al pie de una página:
   // pedimos espacio para el header + al menos una fila.
-  checkPageBreak(6 + 8);
+  checkPageBreak(6 + 10);
   drawTableHeader(yPos);
-  yPos += 5.5;
+  yPos += 15;
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(8);
 
@@ -379,7 +379,7 @@ async function construirDocumentoPDF(
       addHeaderAndFooter(doc, paginaActual, fecha, companiaName);
       yPos = contentTop;
       drawTableHeader(yPos);
-      yPos += 5.5;
+      yPos += 15;
       doc.setFont('helvetica', 'normal');
       doc.setFontSize(8);
     }
@@ -417,9 +417,9 @@ async function construirDocumentoPDF(
       doc.text(notaLines, startX + 5, yPos);
       doc.setFontSize(8);
       doc.setTextColor(0, 0, 0);
-      yPos += notaLines.length * 2.6 + 0.5;
+      yPos += notaLines.length * 2.6 + 2.5;
     } else {
-      yPos += rowHeight + 0.5;
+      yPos += rowHeight + 2.5;
     }
   });
 
@@ -431,15 +431,15 @@ async function construirDocumentoPDF(
     `Esta cotización tiene una vigencia de 30 días naturales; después de este período los precios y disponibilidad están sujetos a cambio.`,
     contentWidth - 10
   );
-  const avisoHeight = avisoLines.length * 3.5 + 2;
-  const infoBoxHeight = 15;
-  const totalesBlockHeight = 3 + 5 + 4.5 + 5 + 5.5 + 2 + avisoHeight + 2 + infoBoxHeight + 1;
+  const avisoHeight = avisoLines.length * 3.5 + 11;
+  const infoBoxHeight = 34;
+  const totalesBlockHeight = 8 + 14 + 13 + 14 + 15 + 8 + avisoHeight + 8 + infoBoxHeight + 4;
   checkPageBreak(totalesBlockHeight);
 
-  yPos += 3;
+  yPos += 8;
   doc.setDrawColor(180, 180, 180);
   doc.line(startX, yPos, pageWidth - margin, yPos);
-  yPos += 5;
+  yPos += 14;
 
   // Totales
   doc.setFont('helvetica', 'bold');
@@ -452,7 +452,7 @@ async function construirDocumentoPDF(
   doc.text(`$${subtotal.toLocaleString('es-MX', { maximumFractionDigits: 2 })} ${simbolo}`, pageWidth - margin - 5, yPos, {
     align: 'right',
   });
-  yPos += 4.5;
+  yPos += 13;
 
   doc.setFont('helvetica', 'bold');
   doc.text('IVA (16%):', totalsStartX, yPos, { align: 'left' });
@@ -460,7 +460,7 @@ async function construirDocumentoPDF(
   doc.text(`$${iva.toLocaleString('es-MX', { maximumFractionDigits: 2 })} ${simbolo}`, pageWidth - margin - 5, yPos, {
     align: 'right',
   });
-  yPos += 5;
+  yPos += 14;
 
   // Total box
   doc.setFillColor(...COLOR_BRAND);
@@ -472,65 +472,66 @@ async function construirDocumentoPDF(
   doc.text(`$${total.toLocaleString('es-MX', { maximumFractionDigits: 2 })} ${simbolo}`, pageWidth - margin - 5, yPos, {
     align: 'right',
   });
-  yPos += 6;
+  yPos += 15;
 
   // Aviso vigencia — centrado, como en la referencia
   doc.setFillColor(255, 240, 220);
   doc.setTextColor(220, 100, 0);
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(9);
-  doc.roundedRect(margin, yPos - 3, contentWidth, avisoHeight, 1.5, 1.5, 'F');
+  doc.roundedRect(margin, yPos - 6, contentWidth, avisoHeight, 1.5, 1.5, 'F');
   doc.text(avisoLines, pageWidth / 2, yPos, { align: 'center' });
-  yPos += avisoHeight + 2;
+  yPos += avisoHeight + 8;
 
   // Vigencia y Método de Pago — en cajas grises, como en la referencia
   const boxWidth = (contentWidth - 6) / 2;
 
   doc.setFillColor(...COLOR_GRAY_BG);
-  doc.roundedRect(margin, yPos - 3.5, boxWidth, infoBoxHeight, 2, 2, 'F');
-  doc.roundedRect(margin + boxWidth + 6, yPos - 3.5, boxWidth, infoBoxHeight, 2, 2, 'F');
+  doc.roundedRect(margin, yPos - 6, boxWidth, infoBoxHeight, 2, 2, 'F');
+  doc.roundedRect(margin + boxWidth + 6, yPos - 6, boxWidth, infoBoxHeight, 2, 2, 'F');
 
   doc.setFontSize(8);
   doc.setTextColor(...COLOR_GRAY_LABEL);
   doc.setFont('helvetica', 'bold');
   doc.text('VIGENCIA', margin + 5, yPos);
   doc.text('MÉTODO DE PAGO', margin + boxWidth + 11, yPos);
-  yPos += 4;
+  yPos += 12;
 
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(11);
   doc.setTextColor(...COLOR_TEXT);
   doc.text('30 días', margin + 5, yPos);
   doc.text(METODO_PAGO_LABELS[metodoPago], margin + boxWidth + 11, yPos);
-  yPos += 4;
+  yPos += 12;
 
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(7);
   doc.setTextColor(120, 120, 120);
   doc.text(`Del ${fecha} al ${fechaVencimiento}`, margin + 5, yPos);
-  yPos = yPos - 8 + infoBoxHeight + 8; // baja al final de las cajas info + gap
+  yPos = yPos + infoBoxHeight + 12; // baja al final de las cajas info + gap
 
   // ==================== TÉRMINOS Y CONDICIONES (bloque adhesivo) ====================
   // Texto fijo — ver TERMINOS_FIJOS al inicio del archivo (siempre igual, sin importar
   // la cotización).
   doc.setFontSize(9);
   const terminosTextWidth = contentWidth - 16;
-  // 5 = padding superior de la caja (terminosBoxY = yPos - 5) + 5 = avance del encabezado
-  // (yPos += 5 tras el título). Ambos deben contarse: si se omite el padding superior la
-  // caja queda corta y el siguiente bloque ("Sobre Nosotros") se dibuja encima del texto.
-  let terminosContentHeight = 10; // padding superior + encabezado
+  // 8 = padding superior de la caja (terminosBoxY = yPos - 8) + 14 = avance del encabezado
+  // (yPos += 14 tras el título), más margen extra. Ambos deben contarse: si se omite el
+  // padding superior la caja queda corta y el siguiente bloque ("Sobre Nosotros") se dibuja
+  // encima del texto.
+  let terminosContentHeight = 23; // padding superior + encabezado
   const terminosLineData = TERMINOS_FIJOS.map((item) => {
     const lineas = doc.splitTextToSize(item.texto, terminosTextWidth);
-    const itemHeight = 3 + lineas.length * 3.5 + 3;
+    const itemHeight = 8 + lineas.length * 3.5 + 8;
     terminosContentHeight += itemHeight;
     return { ...item, lineas };
   });
-  terminosContentHeight += 4; // padding inferior
+  terminosContentHeight += 12; // padding inferior
 
-  checkPageBreak(terminosContentHeight + 5);
+  checkPageBreak(terminosContentHeight + 14);
 
   // Caja gris + barra azul continua (reemplaza los guiones sueltos de la versión anterior)
-  const terminosBoxY = yPos - 5;
+  const terminosBoxY = yPos - 8;
   doc.setFillColor(...COLOR_GRAY_BG);
   doc.roundedRect(margin, terminosBoxY, contentWidth, terminosContentHeight, 2, 2, 'F');
   doc.setFillColor(...COLOR_BRAND);
@@ -540,7 +541,7 @@ async function construirDocumentoPDF(
   doc.setTextColor(...COLOR_BRAND);
   doc.setFont('helvetica', 'bold');
   doc.text('Términos y Condiciones', margin + 8, yPos);
-  yPos += 5;
+  yPos += 14;
 
   doc.setFontSize(9);
   doc.setFont('helvetica', 'normal');
@@ -549,15 +550,15 @@ async function construirDocumentoPDF(
     doc.setFont('helvetica', 'bold');
     doc.setTextColor(...COLOR_TEXT);
     doc.text(item.titulo, margin + 8, yPos);
-    yPos += 3;
+    yPos += 8;
 
     doc.setFont('helvetica', 'normal');
     doc.setTextColor(...COLOR_TEXT_SOFT);
     doc.text(item.lineas, margin + 8, yPos);
-    yPos += item.lineas.length * 3.5 + 3;
+    yPos += item.lineas.length * 3.5 + 8;
   });
 
-  yPos = terminosBoxY + terminosContentHeight + 7;
+  yPos = terminosBoxY + terminosContentHeight + 12;
 
   // ==================== SOBRE NOSOTROS + DATOS BANCARIOS (bloque adhesivo) ====================
   // Datos fijos — ver DATOS_BANCARIOS_FIJOS al inicio del archivo (siempre los mismos,
@@ -571,11 +572,11 @@ async function construirDocumentoPDF(
   const notaBancariaLines = doc.splitTextToSize(notaBancariaTexto, contentWidth - 16);
 
   const sobreNosotrosHeight =
-    5 + introLines.length * 3.6 + 3 + DATOS_BANCARIOS_FIJOS.length * 5 + 2.5 + notaBancariaLines.length * 3.2 + 4;
+    14 + introLines.length * 3.6 + 8 + DATOS_BANCARIOS_FIJOS.length * 14 + 8 + notaBancariaLines.length * 3.2 + 12;
 
-  checkPageBreak(sobreNosotrosHeight + 5);
+  checkPageBreak(sobreNosotrosHeight + 8);
 
-  const sobreNosotrosBoxY = yPos - 5;
+  const sobreNosotrosBoxY = yPos - 8;
   doc.setFillColor(...COLOR_GRAY_BG);
   doc.roundedRect(margin, sobreNosotrosBoxY, contentWidth, sobreNosotrosHeight, 2, 2, 'F');
   doc.setFillColor(...COLOR_BRAND);
@@ -585,13 +586,13 @@ async function construirDocumentoPDF(
   doc.setTextColor(...COLOR_BRAND);
   doc.setFont('helvetica', 'bold');
   doc.text('Sobre Nosotros', margin + 8, yPos);
-  yPos += 5;
+  yPos += 14;
 
   doc.setFontSize(9);
   doc.setTextColor(...COLOR_TEXT_SOFT);
   doc.setFont('helvetica', 'normal');
   doc.text(introLines, margin + 8, yPos);
-  yPos += introLines.length * 3.6 + 3;
+  yPos += introLines.length * 3.6 + 8;
 
   DATOS_BANCARIOS_FIJOS.forEach((dato) => {
     doc.setFont('helvetica', 'bold');
@@ -600,16 +601,16 @@ async function construirDocumentoPDF(
     doc.setFont('helvetica', 'normal');
     doc.setTextColor(...COLOR_TEXT_SOFT);
     doc.text(dato.valor, margin + 40, yPos);
-    yPos += 5;
+    yPos += 14;
   });
 
-  yPos += 2.5;
+  yPos += 8;
   doc.setFontSize(8);
   doc.setFont('helvetica', 'italic');
   doc.setTextColor(100, 100, 100);
   doc.text(notaBancariaLines, margin + 8, yPos);
 
-  yPos = sobreNosotrosBoxY + sobreNosotrosHeight + 8;
+  yPos = sobreNosotrosBoxY + sobreNosotrosHeight + 12;
 
   // ==================== CONTACTO FINAL (bloque adhesivo) ====================
   // IMPORTANTE: fontSize/font deben fijarse ANTES de splitTextToSize — si no, el ancho de
@@ -624,39 +625,39 @@ async function construirDocumentoPDF(
 
   // La firma de cierre (nombre, empresa, correo, teléfono, RFC) es SIEMPRE la de quien
   // emite la cotización (HEADER_*) — nunca la del cliente al que se le cotiza.
-  const bloqueAzulHeight = contactoLines.length * 5 + 4 + 5 + 5 + 5 + 5 + 5 + 5;
-  const footerInfoHeight = 10 + 6;
+  const bloqueAzulHeight = contactoLines.length * 5 + 12 + 14 + 14 + 14 + 14 + 10;
+  const footerInfoHeight = 20 + 8;
   checkPageBreak(bloqueAzulHeight + footerInfoHeight);
 
   doc.setFillColor(...COLOR_BRAND);
-  doc.roundedRect(margin, yPos - 5, contentWidth, bloqueAzulHeight, 2, 2, 'F');
+  doc.roundedRect(margin, yPos - 8, contentWidth, bloqueAzulHeight, 2, 2, 'F');
 
   doc.setFontSize(11);
   doc.setTextColor(255, 255, 255);
   doc.setFont('helvetica', 'normal');
   doc.text(contactoLines, margin + 4, yPos);
-  yPos += contactoLines.length * 5 + 4;
+  yPos += contactoLines.length * 5 + 12;
 
   // Nombre de quien firma la cotización — fijo (HEADER_CONTACTO)
   doc.setFontSize(11);
   doc.setFont('helvetica', 'bold');
   doc.text(HEADER_CONTACTO, margin + 4, yPos);
-  yPos += 5;
+  yPos += 14;
 
   doc.setFontSize(10);
   doc.setFont('helvetica', 'normal');
   doc.text(companiaName, margin + 4, yPos);
-  yPos += 5;
+  yPos += 14;
 
   doc.setDrawColor(255, 255, 255);
   doc.setLineWidth(0.2);
   doc.line(margin + 4, yPos, pageWidth - margin - 4, yPos);
-  yPos += 5;
+  yPos += 14;
 
   doc.setFontSize(10);
   doc.setFont('helvetica', 'bold');
   doc.text(companiaName.toUpperCase(), margin + 4, yPos);
-  yPos += 5;
+  yPos += 14;
 
   doc.setFontSize(9);
   doc.setFont('helvetica', 'normal');
@@ -664,7 +665,7 @@ async function construirDocumentoPDF(
   doc.text(HEADER_TELEFONO, pageWidth - margin - 5, yPos, { align: 'right' });
 
   // Footer info — fluye justo debajo del bloque de contacto
-  yPos += 10;
+  yPos += 20;
   doc.setFontSize(8);
   doc.setTextColor(100, 100, 100);
   doc.setFont('helvetica', 'normal');
@@ -673,7 +674,7 @@ async function construirDocumentoPDF(
     `${companiaName}`,
   ];
   footerLines.forEach((line, i) => {
-    doc.text(line, pageWidth / 2, yPos + i * 3, { align: 'center' });
+    doc.text(line, pageWidth / 2, yPos + i * 5, { align: 'center' });
   });
 
   // Sustituye el placeholder de todas las páginas por el total real de páginas
