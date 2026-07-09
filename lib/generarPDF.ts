@@ -20,6 +20,60 @@ const COLOR_GRAY_LABEL: [number, number, number] = [140, 140, 140];
 const COLOR_TEXT: [number, number, number] = [30, 30, 30];
 const COLOR_TEXT_SOFT: [number, number, number] = [70, 70, 70];
 
+// Datos de la empresa que emite la cotización — SIEMPRE fijos, nunca dependen de
+// `datosCliente` (que representa al cliente que RECIBE la cotización, no a quien la emite).
+// Se usan en el encabezado (portada + header/footer de cada página) y en el bloque de
+// cierre/firma, para que la identidad de quien cotiza nunca cambie de una cotización a otra.
+const HEADER_EMPRESA = 'HIMAYA SISTEMAS EDUARDO EFREN PIMENTEL AGUIRRE';
+const HEADER_EMAILS = 'eduardo@himayasist.com,aranza@himayasist.com,turno_mat@himayasist.com';
+const HEADER_TELEFONO = '9982063719';
+const HEADER_CONTACTO = 'EDUARDO EFREN PIMENTEL AGUIRRE';
+const HEADER_RFC = 'PIAE641027GT2';
+
+// Términos y Condiciones — texto fijo, siempre igual sin importar la cotización.
+const TERMINOS_FIJOS = [
+  {
+    titulo: 'Forma de pago:',
+    texto: '80 % de anticipo para iniciar el proyecto y 20 % contra entrega del equipo instalado y funcionando.',
+  },
+  {
+    titulo: 'Alcance de la instalación:',
+    texto:
+      'La propuesta contempla la instalación estándar del sistema de videovigilancia. No incluye readecuaciones, obra civil ni acabados especiales; cualquier modificación adicional será cotizada y negociada por separado.',
+  },
+  {
+    titulo: 'Vigencia y precios:',
+    texto: 'Los precios aquí presentados pueden variar sin previo aviso una vez transcurrida la vigencia de esta cotización.',
+  },
+  {
+    titulo: 'Facturación:',
+    texto: 'Si requiere factura, favor de enviar su constancia de situación fiscal actualizada para tramitarla correctamente.',
+  },
+  {
+    titulo: 'Tiempo de entrega:',
+    texto:
+      'La instalación se ejecutará en un período de 5 a 7 días hábiles, contados a partir de la aceptación de la propuesta y la confirmación del pago correspondiente.',
+  },
+  {
+    titulo: 'Cancelación:',
+    texto: 'En caso de cancelación de la propuesta ya aceptada y pagada, se aplicará una penalización del 20 % sobre el monto total.',
+  },
+  {
+    titulo: 'Confirmación de pagos:',
+    texto:
+      'Para agilizar la aplicación a su cuenta, le solicitamos amablemente enviar el comprobante de pago vía correo electrónico o WhatsApp; de lo contrario, el pago seguirá registrado como pendiente.',
+  },
+];
+
+// Datos Bancarios — siempre los mismos, sin importar la cotización.
+const DATOS_BANCARIOS_FIJOS = [
+  { titulo: 'Titular:', valor: 'Eduardo Pimentel Aguirre' },
+  { titulo: 'Banco:', valor: 'Santander' },
+  { titulo: 'Cuenta:', valor: '60556305657' },
+  { titulo: 'CLABE:', valor: '014691605563056579' },
+  { titulo: 'No. Tarjeta:', valor: '5579 0780 0293 3345' },
+];
+
 function addHeaderAndFooter(
   doc: jsPDF,
   pageNum: number,
@@ -76,7 +130,10 @@ async function construirDocumentoPDF(
   const simbolo = moneda === 'USD' ? 'USD' : 'MXN';
   const fecha = new Date().toLocaleDateString('es-MX');
   const fechaVencimiento = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toLocaleDateString('es-MX');
-  const companiaName = datosCliente.empresa || 'MI EMPRESA';
+  // La empresa que emite la cotización es SIEMPRE la misma — no depende de datosCliente
+  // (que es el cliente al que se le cotiza). Se usa en portada, header/footer de cada
+  // página, logo y bloque de cierre/firma.
+  const companiaName = HEADER_EMPRESA;
 
   // Límites verticales del área de contenido (entre header y footer).
   const contentTop = 22;
@@ -127,27 +184,21 @@ async function construirDocumentoPDF(
   doc.setTextColor(...COLOR_TEXT);
   doc.setFont('helvetica', 'bold');
   doc.text((companiaName || 'MI EMPRESA').toUpperCase(), pageWidth / 2, yPos, { align: 'center' });
-  yPos += 4;
+  yPos += 6;
 
-  // Contacto
+  // Contacto — fijo, siempre los mismos datos de la empresa que emite (HEADER_*).
   doc.setFontSize(9);
   doc.setTextColor(80, 80, 80);
   doc.setFont('helvetica', 'normal');
-  if (datosCliente.correos.length > 0) {
-    doc.text(datosCliente.correos.join(', '), pageWidth / 2, yPos, { align: 'center' });
-    yPos += 3.5;
-  }
-  if (datosCliente.telefono) {
-    doc.text(`Tel: ${datosCliente.telefono}`, pageWidth / 2, yPos, { align: 'center' });
-    yPos += 3.5;
-  }
-  if (datosCliente.rfc) {
-    doc.setFontSize(8);
-    doc.setTextColor(...COLOR_GRAY_LABEL);
-    doc.text(`RFC: ${datosCliente.rfc}`, pageWidth / 2, yPos, { align: 'center' });
-    yPos += 3.5;
-  }
-  yPos += 2;
+  doc.text(HEADER_EMAILS, pageWidth / 2, yPos, { align: 'center' });
+  yPos += 5;
+  doc.text(`Tel: ${HEADER_TELEFONO}`, pageWidth / 2, yPos, { align: 'center' });
+  yPos += 5;
+  doc.setFontSize(8);
+  doc.setTextColor(...COLOR_GRAY_LABEL);
+  doc.text(`RFC: ${HEADER_RFC}`, pageWidth / 2, yPos, { align: 'center' });
+  yPos += 5;
+  yPos += 4;
 
   // Bloque azul con fecha
   doc.setFillColor(...COLOR_BRAND);
@@ -166,7 +217,7 @@ async function construirDocumentoPDF(
     datosCliente.nombreCompleto
   ).toUpperCase();
 
-  const clienteBoxHeight = 4 + 4 + (datosCliente.telefono ? 3 : 0) + 3;
+  const clienteBoxHeight = 5 + 5 + (datosCliente.telefono ? 4 : 0) + 4;
   checkPageBreak(clienteBoxHeight + 4);
 
   const clienteBoxY = yPos - 3;
@@ -177,23 +228,23 @@ async function construirDocumentoPDF(
   doc.setTextColor(...COLOR_GRAY_LABEL);
   doc.setFont('helvetica', 'bold');
   doc.text('CLIENTE', margin + 5, yPos);
-  yPos += 4;
+  yPos += 5;
 
   doc.setFontSize(12);
   doc.setTextColor(...COLOR_TEXT);
   doc.setFont('helvetica', 'bold');
   doc.text(nombreClienteMostrar, margin + 5, yPos);
-  yPos += 4;
+  yPos += 5;
 
   doc.setFontSize(9);
   doc.setFont('helvetica', 'normal');
   doc.setTextColor(80, 80, 80);
   if (datosCliente.telefono) {
     doc.text(`Tel: ${datosCliente.telefono}`, margin + 5, yPos);
-    yPos += 3;
+    yPos += 4;
   }
 
-  yPos = clienteBoxY + clienteBoxHeight + 5;
+  yPos = clienteBoxY + clienteBoxHeight + 8;
 
   // Narrativa del proyecto (bloque de texto — puede saltar de página si es muy largo)
   doc.setFontSize(10);
@@ -227,7 +278,7 @@ async function construirDocumentoPDF(
     doc.setTextColor(...COLOR_TEXT_SOFT);
     doc.setFont('helvetica', 'normal');
     doc.text(descripcionLines, margin, yPos);
-    yPos += descripcionLines.length * 3.8 + 3;
+    yPos += descripcionLines.length * 3.8 + 7;
   }
 
   // Beneficios Clave — caja azul claro. Bloque adhesivo (no se parte).
@@ -263,7 +314,7 @@ async function construirDocumentoPDF(
     doc.text(beneficio, margin + 10, yPos);
     yPos += 3.5;
   });
-  yPos = beneficiosBoxY + beneficiosBoxHeight + 6;
+  yPos = beneficiosBoxY + beneficiosBoxHeight + 8;
 
   // ==================== TABLA DE PRODUCTOS (flujo dinámico) ====================
   const colWidths = {
@@ -382,13 +433,13 @@ async function construirDocumentoPDF(
   );
   const avisoHeight = avisoLines.length * 3.5 + 2;
   const infoBoxHeight = 15;
-  const totalesBlockHeight = 1.5 + 3 + 4.5 + 5 + 5.5 + 2 + avisoHeight + 2 + infoBoxHeight + 1;
+  const totalesBlockHeight = 3 + 5 + 4.5 + 5 + 5.5 + 2 + avisoHeight + 2 + infoBoxHeight + 1;
   checkPageBreak(totalesBlockHeight);
 
-  yPos += 1.5;
+  yPos += 3;
   doc.setDrawColor(180, 180, 180);
   doc.line(startX, yPos, pageWidth - margin, yPos);
-  yPos += 3;
+  yPos += 5;
 
   // Totales
   doc.setFont('helvetica', 'bold');
@@ -457,56 +508,24 @@ async function construirDocumentoPDF(
   doc.setFontSize(7);
   doc.setTextColor(120, 120, 120);
   doc.text(`Del ${fecha} al ${fechaVencimiento}`, margin + 5, yPos);
-  yPos = yPos - 8 + infoBoxHeight + 6; // baja al final de las cajas info + gap
+  yPos = yPos - 8 + infoBoxHeight + 8; // baja al final de las cajas info + gap
 
   // ==================== TÉRMINOS Y CONDICIONES (bloque adhesivo) ====================
-  const terminos = [
-    {
-      titulo: 'Forma de pago:',
-      texto: '80 % de anticipo para iniciar el proyecto y 20 % contra entrega del equipo instalado y funcionando.',
-    },
-    {
-      titulo: 'Alcance de la instalación:',
-      texto:
-        'La propuesta contempla la instalación estándar del sistema de videovigilancia. No incluye readecuaciones, obra civil ni acabados especiales; cualquier modificación adicional será cotizada y negociada por separado.',
-    },
-    {
-      titulo: 'Vigencia y precios:',
-      texto: 'Los precios aquí presentados pueden variar sin previo aviso una vez transcurrida la vigencia de esta cotización.',
-    },
-    {
-      titulo: 'Facturación:',
-      texto: 'Si requiere factura, favor de enviar su constancia de situación fiscal actualizada para tramitarla correctamente.',
-    },
-    {
-      titulo: 'Tiempo de entrega:',
-      texto:
-        'La instalación se ejecutará en un período de 5 a 7 días hábiles, contados a partir de la aceptación de la propuesta y la confirmación del pago correspondiente.',
-    },
-    {
-      titulo: 'Cancelación:',
-      texto: 'En caso de cancelación de la propuesta ya aceptada y pagada, se aplicará una penalización del 20 % sobre el monto total.',
-    },
-    {
-      titulo: 'Confirmación de pagos:',
-      texto:
-        'Para agilizar la aplicación a su cuenta, le solicitamos amablemente enviar el comprobante de pago vía correo electrónico o WhatsApp; de lo contrario, el pago seguirá registrado como pendiente.',
-    },
-  ];
-
+  // Texto fijo — ver TERMINOS_FIJOS al inicio del archivo (siempre igual, sin importar
+  // la cotización).
   doc.setFontSize(9);
   const terminosTextWidth = contentWidth - 16;
   // 5 = padding superior de la caja (terminosBoxY = yPos - 5) + 5 = avance del encabezado
   // (yPos += 5 tras el título). Ambos deben contarse: si se omite el padding superior la
   // caja queda corta y el siguiente bloque ("Sobre Nosotros") se dibuja encima del texto.
   let terminosContentHeight = 10; // padding superior + encabezado
-  const terminosLineData = terminos.map((item) => {
+  const terminosLineData = TERMINOS_FIJOS.map((item) => {
     const lineas = doc.splitTextToSize(item.texto, terminosTextWidth);
-    const itemHeight = 2 + lineas.length * 3.5 + 2;
+    const itemHeight = 3 + lineas.length * 3.5 + 3;
     terminosContentHeight += itemHeight;
     return { ...item, lineas };
   });
-  terminosContentHeight += 3; // padding inferior
+  terminosContentHeight += 4; // padding inferior
 
   checkPageBreak(terminosContentHeight + 5);
 
@@ -530,25 +549,19 @@ async function construirDocumentoPDF(
     doc.setFont('helvetica', 'bold');
     doc.setTextColor(...COLOR_TEXT);
     doc.text(item.titulo, margin + 8, yPos);
-    yPos += 2;
+    yPos += 3;
 
     doc.setFont('helvetica', 'normal');
     doc.setTextColor(...COLOR_TEXT_SOFT);
     doc.text(item.lineas, margin + 8, yPos);
-    yPos += item.lineas.length * 3.5 + 2;
+    yPos += item.lineas.length * 3.5 + 3;
   });
 
-  yPos = terminosBoxY + terminosContentHeight + 6;
+  yPos = terminosBoxY + terminosContentHeight + 7;
 
   // ==================== SOBRE NOSOTROS + DATOS BANCARIOS (bloque adhesivo) ====================
-  const datosBancarios = [
-    { titulo: 'Titular:', valor: 'Su Nombre' },
-    { titulo: 'Banco:', valor: 'Santander' },
-    { titulo: 'Cuenta:', valor: '60556305657' },
-    { titulo: 'CLABE:', valor: '014691605563056579' },
-    { titulo: 'No. Tarjeta:', valor: '5579 0780 0293 3345' },
-  ];
-
+  // Datos fijos — ver DATOS_BANCARIOS_FIJOS al inicio del archivo (siempre los mismos,
+  // sin importar la cotización).
   doc.setFontSize(9);
   const sobreNosotrosIntro = `En ${companiaName} nos respaldan años de experiencia brindando soluciones de seguridad electrónica confiables. Para su comodidad, estos son nuestros datos bancarios:`;
   const introLines = doc.splitTextToSize(sobreNosotrosIntro, contentWidth - 16);
@@ -558,7 +571,7 @@ async function construirDocumentoPDF(
   const notaBancariaLines = doc.splitTextToSize(notaBancariaTexto, contentWidth - 16);
 
   const sobreNosotrosHeight =
-    5 + introLines.length * 3.6 + 2 + datosBancarios.length * 3.6 + 1.5 + notaBancariaLines.length * 3.2 + 2;
+    5 + introLines.length * 3.6 + 3 + DATOS_BANCARIOS_FIJOS.length * 5 + 2.5 + notaBancariaLines.length * 3.2 + 4;
 
   checkPageBreak(sobreNosotrosHeight + 5);
 
@@ -578,25 +591,25 @@ async function construirDocumentoPDF(
   doc.setTextColor(...COLOR_TEXT_SOFT);
   doc.setFont('helvetica', 'normal');
   doc.text(introLines, margin + 8, yPos);
-  yPos += introLines.length * 3.6 + 2;
+  yPos += introLines.length * 3.6 + 3;
 
-  datosBancarios.forEach((dato) => {
+  DATOS_BANCARIOS_FIJOS.forEach((dato) => {
     doc.setFont('helvetica', 'bold');
     doc.setTextColor(...COLOR_TEXT);
     doc.text(dato.titulo, margin + 8, yPos);
     doc.setFont('helvetica', 'normal');
     doc.setTextColor(...COLOR_TEXT_SOFT);
     doc.text(dato.valor, margin + 40, yPos);
-    yPos += 3.6;
+    yPos += 5;
   });
 
-  yPos += 1.5;
+  yPos += 2.5;
   doc.setFontSize(8);
   doc.setFont('helvetica', 'italic');
   doc.setTextColor(100, 100, 100);
   doc.text(notaBancariaLines, margin + 8, yPos);
 
-  yPos = sobreNosotrosBoxY + sobreNosotrosHeight + 6;
+  yPos = sobreNosotrosBoxY + sobreNosotrosHeight + 8;
 
   // ==================== CONTACTO FINAL (bloque adhesivo) ====================
   // IMPORTANTE: fontSize/font deben fijarse ANTES de splitTextToSize — si no, el ancho de
@@ -609,7 +622,9 @@ async function construirDocumentoPDF(
   ).toUpperCase()} a la realidad. Si tiene alguna duda o desea ajustar algún detalle, comuníquese directamente conmigo. Puede escribirme por WhatsApp y con gusto le brindaré asesoría personalizada para que tome la mejor decisión.`;
   const contactoLines = doc.splitTextToSize(contactoIntro, contentWidth - 8);
 
-  const bloqueAzulHeight = contactoLines.length * 5 + 3 + 4 + 4 + 4 + 4 + (datosCliente.correos.length > 0 ? 4 : 0) + 4;
+  // La firma de cierre (nombre, empresa, correo, teléfono, RFC) es SIEMPRE la de quien
+  // emite la cotización (HEADER_*) — nunca la del cliente al que se le cotiza.
+  const bloqueAzulHeight = contactoLines.length * 5 + 4 + 5 + 5 + 5 + 5 + 5 + 5;
   const footerInfoHeight = 10 + 6;
   checkPageBreak(bloqueAzulHeight + footerInfoHeight);
 
@@ -620,37 +635,33 @@ async function construirDocumentoPDF(
   doc.setTextColor(255, 255, 255);
   doc.setFont('helvetica', 'normal');
   doc.text(contactoLines, margin + 4, yPos);
-  yPos += contactoLines.length * 5 + 3;
+  yPos += contactoLines.length * 5 + 4;
 
-  // Nombre de quien firma la cotización
+  // Nombre de quien firma la cotización — fijo (HEADER_CONTACTO)
   doc.setFontSize(11);
   doc.setFont('helvetica', 'bold');
-  doc.text(datosCliente.nombreCompleto, margin + 4, yPos);
-  yPos += 4;
+  doc.text(HEADER_CONTACTO, margin + 4, yPos);
+  yPos += 5;
 
   doc.setFontSize(10);
   doc.setFont('helvetica', 'normal');
   doc.text(companiaName, margin + 4, yPos);
-  yPos += 4;
+  yPos += 5;
 
   doc.setDrawColor(255, 255, 255);
   doc.setLineWidth(0.2);
   doc.line(margin + 4, yPos, pageWidth - margin - 4, yPos);
-  yPos += 4;
+  yPos += 5;
 
   doc.setFontSize(10);
   doc.setFont('helvetica', 'bold');
   doc.text(companiaName.toUpperCase(), margin + 4, yPos);
-  yPos += 4;
+  yPos += 5;
 
   doc.setFontSize(9);
   doc.setFont('helvetica', 'normal');
-  if (datosCliente.correos.length > 0) {
-    doc.text(datosCliente.correos.join(', '), margin + 4, yPos);
-  }
-  if (datosCliente.telefono) {
-    doc.text(datosCliente.telefono, pageWidth - margin - 5, yPos, { align: 'right' });
-  }
+  doc.text(HEADER_EMAILS, margin + 4, yPos);
+  doc.text(HEADER_TELEFONO, pageWidth - margin - 5, yPos, { align: 'right' });
 
   // Footer info — fluye justo debajo del bloque de contacto
   yPos += 10;
@@ -658,10 +669,8 @@ async function construirDocumentoPDF(
   doc.setTextColor(100, 100, 100);
   doc.setFont('helvetica', 'normal');
   const footerLines = [
-    datosCliente.rfc
-      ? `${datosCliente.nombreCompleto} • RFC: ${datosCliente.rfc} • ${datosCliente.telefono}`
-      : `${datosCliente.nombreCompleto} • ${datosCliente.telefono}`,
-    `${datosCliente.empresa || 'Su Empresa'}`,
+    `${HEADER_CONTACTO} • RFC: ${HEADER_RFC} • ${HEADER_TELEFONO}`,
+    `${companiaName}`,
   ];
   footerLines.forEach((line, i) => {
     doc.text(line, pageWidth / 2, yPos + i * 3, { align: 'center' });
