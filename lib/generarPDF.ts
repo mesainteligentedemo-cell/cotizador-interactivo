@@ -74,6 +74,84 @@ const DATOS_BANCARIOS_FIJOS = [
   { titulo: 'No. Tarjeta:', valor: '5579 0780 0293 3345' },
 ];
 
+// ---------------------------------------------------------------------------
+// TIPOGRAFÍA — JUSTIFICACIÓN + INTERLINEADO DINÁMICO
+// ---------------------------------------------------------------------------
+// Conversión punto→milímetro (unidad del documento). jsPDF mide el tamaño de
+// fuente en pt pero dibuja en mm, así que toda altura de línea se deriva de aquí
+// para que el interlineado sea REAL y consistente con el tamaño de fuente activo.
+const PT_TO_MM = 0.352778;
+
+// Interlineado dentro del contenido (párrafos, listas): espacio y medio (1.5x).
+const LH_CONTENT = 1.5;
+// Separación entre un título y su contenido: doble espacio (2x).
+const LH_TITLE_GAP = 2.0;
+
+// Altura de un renglón en mm para un tamaño de fuente (pt) y un multiplicador.
+function lineHeightMM(fontSizePt: number, factor: number): number {
+  return fontSizePt * PT_TO_MM * factor;
+}
+
+// Cuenta cuántos renglones ocupará un texto (respetando saltos \n) al ancho dado.
+// Se usa para dimensionar cajas ANTES de renderizar, de forma 100% consistente con
+// drawJustifiedText. El caller debe fijar el mismo font/size antes de llamar.
+function countWrappedLines(doc: jsPDF, text: string, maxWidth: number): number {
+  return text.split('\n').reduce((total, paragraph) => {
+    const trimmed = paragraph.trim();
+    if (trimmed.length === 0) return total + 1;
+    return total + (doc.splitTextToSize(trimmed, maxWidth) as string[]).length;
+  }, 0);
+}
+
+// Dibuja texto JUSTIFICADO a ambos márgenes. jsPDF no justifica de forma nativa
+// respetando la última línea (estira los espacios de la línea final), por eso se
+// implementa a mano: se reparte el sobrante entre los huecos de cada línea salvo
+// la última de cada párrafo, que queda alineada a la izquierda (estándar tipográfico).
+// Respeta saltos \n tratando cada segmento como párrafo. Devuelve la nueva `y`.
+// El caller DEBE fijar font/size/color antes (getTextWidth usa la fuente activa).
+function drawJustifiedText(
+  doc: jsPDF,
+  text: string,
+  x: number,
+  startY: number,
+  maxWidth: number,
+  fontSizePt: number,
+  lineFactor: number = LH_CONTENT
+): number {
+  const lineHeight = lineHeightMM(fontSizePt, lineFactor);
+  let y = startY;
+
+  text.split('\n').forEach((paragraph) => {
+    const trimmed = paragraph.trim();
+    if (trimmed.length === 0) {
+      y += lineHeight;
+      return;
+    }
+    const lines = doc.splitTextToSize(trimmed, maxWidth) as string[];
+    lines.forEach((line, idx) => {
+      const isLastLine = idx === lines.length - 1;
+      const words = line.split(/\s+/).filter((w) => w.length > 0);
+
+      if (isLastLine || words.length < 2) {
+        // Última línea del párrafo (o línea de una sola palabra): izquierda.
+        doc.text(line, x, y);
+      } else {
+        // Reparte el espacio sobrante uniformemente entre las palabras.
+        const wordsWidth = words.reduce((sum, w) => sum + doc.getTextWidth(w), 0);
+        const gap = (maxWidth - wordsWidth) / (words.length - 1);
+        let cursor = x;
+        words.forEach((w) => {
+          doc.text(w, cursor, y);
+          cursor += doc.getTextWidth(w) + gap;
+        });
+      }
+      y += lineHeight;
+    });
+  });
+
+  return y;
+}
+
 function addHeaderAndFooter(
   doc: jsPDF,
   pageNum: number,
@@ -246,39 +324,42 @@ async function construirDocumentoPDF(
 
   yPos = clienteBoxY + clienteBoxHeight + 10;
 
-  // Narrativa del proyecto (bloque de texto — puede saltar de página si es muy largo)
+  // Narrativa del proyecto — texto JUSTIFICADO con interlineado 1.5x. Puede saltar de
+  // página si es muy largo. El saludo ("Estimada X,") es su propio párrafo (\n) y por
+  // tanto queda alineado a la izquierda, no estirado.
   doc.setFontSize(10);
   doc.setTextColor(...COLOR_TEXT_SOFT);
   doc.setFont('helvetica', 'normal');
   const narrativa = `Estimada ${datosCliente.nombreCompleto},\nEs un gusto saludarle en nombre de ${companiaName}. Hemos preparado con especial atención esta propuesta para ${proyecto.titulo || 'su proyecto'}, pensando en un sistema que combine tecnología de punta, confiabilidad y la tranquilidad que su proyecto merece.`;
-  const narrativaLines = doc.splitTextToSize(narrativa, contentWidth);
-  checkPageBreak(narrativaLines.length * 3.8 + 8);
-  doc.text(narrativaLines, margin, yPos);
-  yPos += narrativaLines.length * 3.8 + 10;
+  const narrativaLH = lineHeightMM(10, LH_CONTENT);
+  const narrativaLineCount = countWrappedLines(doc, narrativa, contentWidth);
+  checkPageBreak(narrativaLineCount * narrativaLH + narrativaLH);
+  yPos = drawJustifiedText(doc, narrativa, margin, yPos, contentWidth, 10);
+  yPos += narrativaLH; // gap dinámico hacia la siguiente sección
 
-  // Título proyecto + descripción (mantenidos juntos con su primera línea)
-  doc.setFontSize(14);
-  doc.setFont('helvetica', 'bold');
-  let descripcionLines: string[] = [];
-  if (proyecto.descripcion) {
-    doc.setFontSize(10);
-    doc.setFont('helvetica', 'normal');
-    descripcionLines = doc.splitTextToSize(proyecto.descripcion, contentWidth);
-  }
-  checkPageBreak(6 + descripcionLines.length * 3.8 + 8);
+  // Título proyecto + descripción (mantenidos juntos con su primera línea).
+  // Título → DOBLE espacio → descripción JUSTIFICADA con interlineado 1.5x.
+  const proyectoTitleGap = lineHeightMM(14, LH_TITLE_GAP); // doble espacio tras título
+  const descLH = lineHeightMM(10, LH_CONTENT);
+  doc.setFontSize(10);
+  doc.setFont('helvetica', 'normal');
+  const descLineCount = proyecto.descripcion
+    ? countWrappedLines(doc, proyecto.descripcion, contentWidth)
+    : 0;
+  checkPageBreak(lineHeightMM(14, 1.2) + proyectoTitleGap + descLineCount * descLH + descLH);
 
   doc.setFontSize(14);
   doc.setTextColor(...COLOR_BRAND);
   doc.setFont('helvetica', 'bold');
   doc.text((proyecto.titulo || 'PROYECTO').toUpperCase(), margin, yPos);
-  yPos += 10;
+  yPos += proyectoTitleGap;
 
-  if (descripcionLines.length > 0) {
+  if (proyecto.descripcion) {
     doc.setFontSize(10);
     doc.setTextColor(...COLOR_TEXT_SOFT);
     doc.setFont('helvetica', 'normal');
-    doc.text(descripcionLines, margin, yPos);
-    yPos += descripcionLines.length * 3.8 + 10;
+    yPos = drawJustifiedText(doc, proyecto.descripcion, margin, yPos, contentWidth, 10);
+    yPos += descLH;
   }
 
   // Beneficios Clave — caja azul claro. Bloque adhesivo (no se parte).
@@ -513,20 +594,25 @@ async function construirDocumentoPDF(
   // ==================== TÉRMINOS Y CONDICIONES (bloque adhesivo) ====================
   // Texto fijo — ver TERMINOS_FIJOS al inicio del archivo (siempre igual, sin importar
   // la cotización).
-  doc.setFontSize(9);
   const terminosTextWidth = contentWidth - 16;
-  // 8 = padding superior de la caja (terminosBoxY = yPos - 8) + 14 = avance del encabezado
-  // (yPos += 14 tras el título), más margen extra. Ambos deben contarse: si se omite el
-  // padding superior la caja queda corta y el siguiente bloque ("Sobre Nosotros") se dibuja
-  // encima del texto.
-  let terminosContentHeight = 23; // padding superior + encabezado
+  // Interlineado dinámico: encabezado 12pt → DOBLE espacio; subtítulo 9pt → DOBLE espacio →
+  // texto 9pt JUSTIFICADO a 1.5x; separación entre términos = un renglón de contenido.
+  const termHeaderGap = lineHeightMM(12, LH_TITLE_GAP);
+  const termTitleGap = lineHeightMM(9, LH_TITLE_GAP);
+  const termTextLH = lineHeightMM(9, LH_CONTENT);
+  const termBlockGap = termTextLH;
+
+  // La altura de la caja se calcula EXACTAMENTE igual que el renderizado de abajo, para que
+  // el siguiente bloque ("Sobre Nosotros") nunca se dibuje encima del texto ni queden blancos.
+  doc.setFontSize(9);
+  doc.setFont('helvetica', 'normal');
+  let terminosContentHeight = 8 + termHeaderGap; // padding superior + avance del encabezado
   const terminosLineData = TERMINOS_FIJOS.map((item) => {
-    const lineas = doc.splitTextToSize(item.texto, terminosTextWidth);
-    const itemHeight = 8 + lineas.length * 3.5 + 8;
-    terminosContentHeight += itemHeight;
-    return { ...item, lineas };
+    const lineCount = countWrappedLines(doc, item.texto, terminosTextWidth);
+    terminosContentHeight += termTitleGap + lineCount * termTextLH + termBlockGap;
+    return item;
   });
-  terminosContentHeight += 12; // padding inferior
+  terminosContentHeight += 4; // padding inferior
 
   checkPageBreak(terminosContentHeight + 14);
 
@@ -541,21 +627,20 @@ async function construirDocumentoPDF(
   doc.setTextColor(...COLOR_BRAND);
   doc.setFont('helvetica', 'bold');
   doc.text('Términos y Condiciones', margin + 8, yPos);
-  yPos += 14;
-
-  doc.setFontSize(9);
-  doc.setFont('helvetica', 'normal');
+  yPos += termHeaderGap;
 
   terminosLineData.forEach((item) => {
     doc.setFont('helvetica', 'bold');
+    doc.setFontSize(9);
     doc.setTextColor(...COLOR_TEXT);
     doc.text(item.titulo, margin + 8, yPos);
-    yPos += 8;
+    yPos += termTitleGap;
 
     doc.setFont('helvetica', 'normal');
+    doc.setFontSize(9);
     doc.setTextColor(...COLOR_TEXT_SOFT);
-    doc.text(item.lineas, margin + 8, yPos);
-    yPos += item.lineas.length * 3.5 + 8;
+    yPos = drawJustifiedText(doc, item.texto, margin + 8, yPos, terminosTextWidth, 9);
+    yPos += termBlockGap;
   });
 
   yPos = terminosBoxY + terminosContentHeight + 12;
@@ -563,16 +648,32 @@ async function construirDocumentoPDF(
   // ==================== SOBRE NOSOTROS + DATOS BANCARIOS (bloque adhesivo) ====================
   // Datos fijos — ver DATOS_BANCARIOS_FIJOS al inicio del archivo (siempre los mismos,
   // sin importar la cotización).
-  doc.setFontSize(9);
   const sobreNosotrosIntro = `En ${companiaName} nos respaldan años de experiencia brindando soluciones de seguridad electrónica confiables. Para su comodidad, estos son nuestros datos bancarios:`;
-  const introLines = doc.splitTextToSize(sobreNosotrosIntro, contentWidth - 16);
-
   const notaBancariaTexto =
     'Por favor referencie el comprobante de pago con el nombre del proyecto o del cliente para una identificación ágil.';
-  const notaBancariaLines = doc.splitTextToSize(notaBancariaTexto, contentWidth - 16);
+
+  // Interlineado dinámico: título 12pt → DOBLE espacio; intro 9pt justificada 1.5x;
+  // filas de datos 9pt a 1.5x; nota 8pt a 1.5x. La altura se calcula igual que el render.
+  const snHeaderGap = lineHeightMM(12, LH_TITLE_GAP);
+  const snIntroLH = lineHeightMM(9, LH_CONTENT);
+  const snDatoLH = lineHeightMM(9, LH_CONTENT);
+  const snNotaLH = lineHeightMM(8, LH_CONTENT);
+
+  doc.setFontSize(9);
+  doc.setFont('helvetica', 'normal');
+  const introLineCount = countWrappedLines(doc, sobreNosotrosIntro, contentWidth - 16);
+  doc.setFontSize(8);
+  const notaLineCount = countWrappedLines(doc, notaBancariaTexto, contentWidth - 16);
 
   const sobreNosotrosHeight =
-    14 + introLines.length * 3.6 + 8 + DATOS_BANCARIOS_FIJOS.length * 14 + 8 + notaBancariaLines.length * 3.2 + 12;
+    8 + // padding superior
+    snHeaderGap +
+    introLineCount * snIntroLH +
+    snIntroLH + // gap tras intro
+    DATOS_BANCARIOS_FIJOS.length * snDatoLH +
+    8 + // gap antes de la nota
+    notaLineCount * snNotaLH +
+    6; // padding inferior
 
   checkPageBreak(sobreNosotrosHeight + 8);
 
@@ -586,29 +687,30 @@ async function construirDocumentoPDF(
   doc.setTextColor(...COLOR_BRAND);
   doc.setFont('helvetica', 'bold');
   doc.text('Sobre Nosotros', margin + 8, yPos);
-  yPos += 14;
+  yPos += snHeaderGap;
 
   doc.setFontSize(9);
   doc.setTextColor(...COLOR_TEXT_SOFT);
   doc.setFont('helvetica', 'normal');
-  doc.text(introLines, margin + 8, yPos);
-  yPos += introLines.length * 3.6 + 8;
+  yPos = drawJustifiedText(doc, sobreNosotrosIntro, margin + 8, yPos, contentWidth - 16, 9);
+  yPos += snIntroLH;
 
   DATOS_BANCARIOS_FIJOS.forEach((dato) => {
+    doc.setFontSize(9);
     doc.setFont('helvetica', 'bold');
     doc.setTextColor(...COLOR_TEXT);
     doc.text(dato.titulo, margin + 8, yPos);
     doc.setFont('helvetica', 'normal');
     doc.setTextColor(...COLOR_TEXT_SOFT);
     doc.text(dato.valor, margin + 40, yPos);
-    yPos += 14;
+    yPos += snDatoLH;
   });
 
   yPos += 8;
   doc.setFontSize(8);
   doc.setFont('helvetica', 'italic');
   doc.setTextColor(100, 100, 100);
-  doc.text(notaBancariaLines, margin + 8, yPos);
+  yPos = drawJustifiedText(doc, notaBancariaTexto, margin + 8, yPos, contentWidth - 16, 8);
 
   yPos = sobreNosotrosBoxY + sobreNosotrosHeight + 12;
 
@@ -621,11 +723,17 @@ async function construirDocumentoPDF(
   const contactoIntro = `Estamos listos para llevar el proyecto ${(
     proyecto.titulo || 'cotizado'
   ).toUpperCase()} a la realidad. Si tiene alguna duda o desea ajustar algún detalle, comuníquese directamente conmigo. Puede escribirme por WhatsApp y con gusto le brindaré asesoría personalizada para que tome la mejor decisión.`;
-  const contactoLines = doc.splitTextToSize(contactoIntro, contentWidth - 8);
+
+  // Interlineado dinámico: párrafo 11pt JUSTIFICADO a 1.5x; luego firma con filas
+  // legibles. La altura del bloque azul se deriva de las mismas constantes.
+  const contactoLH = lineHeightMM(11, LH_CONTENT);
+  const contactoLineCount = countWrappedLines(doc, contactoIntro, contentWidth - 8);
+  const contactoBlockGap = contactoLH; // gap entre párrafo y firma
 
   // La firma de cierre (nombre, empresa, correo, teléfono, RFC) es SIEMPRE la de quien
   // emite la cotización (HEADER_*) — nunca la del cliente al que se le cotiza.
-  const bloqueAzulHeight = contactoLines.length * 5 + 12 + 14 + 14 + 14 + 14 + 10;
+  const bloqueAzulHeight =
+    8 + contactoLineCount * contactoLH + contactoBlockGap + 14 + 14 + 14 + 14 + 8;
   const footerInfoHeight = 20 + 8;
   checkPageBreak(bloqueAzulHeight + footerInfoHeight);
 
@@ -635,8 +743,8 @@ async function construirDocumentoPDF(
   doc.setFontSize(11);
   doc.setTextColor(255, 255, 255);
   doc.setFont('helvetica', 'normal');
-  doc.text(contactoLines, margin + 4, yPos);
-  yPos += contactoLines.length * 5 + 12;
+  yPos = drawJustifiedText(doc, contactoIntro, margin + 4, yPos, contentWidth - 8, 11);
+  yPos += contactoBlockGap;
 
   // Nombre de quien firma la cotización — fijo (HEADER_CONTACTO)
   doc.setFontSize(11);
