@@ -152,6 +152,28 @@ function drawJustifiedText(
   return y;
 }
 
+// Carga el logo desde /public/logo.png (servido por Next.js) y lo convierte a data URL.
+// generarPDF.ts corre en el navegador ('use client'), NO en Node, así que jsPDF no puede
+// leer el archivo del filesystem directamente: hay que pedirlo por fetch() y convertirlo.
+// Si algo falla (offline, archivo faltante, navegador sin fetch/FileReader) se resuelve a
+// `null` en vez de lanzar, para que el PDF SIEMPRE se genere — con o sin logo.
+async function cargarLogoDataUrl(): Promise<string | null> {
+  try {
+    const response = await fetch('/logo.png');
+    if (!response.ok) return null;
+    const blob = await response.blob();
+    return await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onloadend = () => resolve(reader.result as string);
+      reader.onerror = () => reject(reader.error);
+      reader.readAsDataURL(blob);
+    });
+  } catch (error) {
+    console.warn('No se pudo cargar el logo para el PDF, se continúa sin él:', error);
+    return null;
+  }
+}
+
 function addHeaderAndFooter(
   doc: jsPDF,
   pageNum: number,
@@ -220,6 +242,10 @@ async function construirDocumentoPDF(
   let paginaActual = 1;
   let yPos = contentTop;
 
+  // Se carga antes de dibujar nada porque `doc.addImage` necesita el data URL ya resuelto
+  // (no acepta promesas) y toda la función es async, así que un solo await aquí basta.
+  const logoDataUrl = await cargarLogoDataUrl();
+
   // ---------------------------------------------------------------------------
   // checkPageBreak: núcleo del flow layout. Si el bloque que viene (`requiredSpace`
   // en mm) no cabe en lo que resta de la página, crea una página nueva, repinta el
@@ -240,22 +266,44 @@ async function construirDocumentoPDF(
   // ==================== PORTADA (encabezado del documento) ====================
   addHeaderAndFooter(doc, paginaActual, fecha, companiaName);
 
-  // Logo placeholder (rectángulo con iniciales de la empresa)
-  const iniciales = (companiaName || 'MI')
-    .split(' ')
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((word) => word[0])
-    .join('')
-    .toUpperCase();
+  // Logo real de la empresa, centrado horizontalmente cerca del top de la portada.
+  // El PNG fuente es 500x500 (1:1) — se usa el mismo ancho/alto para no distorsionarlo.
+  const logoWidth = 26; // mm
+  const logoHeight = 26; // mm
+  const logoX = (pageWidth - logoWidth) / 2;
+  const logoY = yPos;
 
-  doc.setFillColor(...COLOR_BRAND);
-  doc.rect(margin, yPos, 15, 15, 'F');
-  doc.setFontSize(9);
-  doc.setTextColor(255, 255, 255);
-  doc.setFont('helvetica', 'bold');
-  doc.text(iniciales || 'MI', margin + 7.5, yPos + 10, { align: 'center' });
-  yPos += 24;
+  let logoInsertado = false;
+  if (logoDataUrl) {
+    try {
+      doc.addImage(logoDataUrl, 'PNG', logoX, logoY, logoWidth, logoHeight);
+      logoInsertado = true;
+    } catch (error) {
+      // No debe romper la generación del PDF: si el logo falla, se cae al placeholder.
+      console.warn('No se pudo insertar el logo en el PDF, se usa el placeholder:', error);
+    }
+  }
+
+  if (logoInsertado) {
+    yPos = logoY + logoHeight + 8;
+  } else {
+    // Placeholder (rectángulo con iniciales de la empresa) — fallback si el logo no cargó.
+    const iniciales = (companiaName || 'MI')
+      .split(' ')
+      .filter(Boolean)
+      .slice(0, 2)
+      .map((word) => word[0])
+      .join('')
+      .toUpperCase();
+
+    doc.setFillColor(...COLOR_BRAND);
+    doc.rect(margin, yPos, 15, 15, 'F');
+    doc.setFontSize(9);
+    doc.setTextColor(255, 255, 255);
+    doc.setFont('helvetica', 'bold');
+    doc.text(iniciales || 'MI', margin + 7.5, yPos + 10, { align: 'center' });
+    yPos += 24;
+  }
 
   // Título principal (nombre de la compañía) — oscuro, no azul, como en la referencia
   doc.setFontSize(14);
