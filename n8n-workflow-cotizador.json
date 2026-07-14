@@ -1,0 +1,299 @@
+{
+  "name": "Cotizador HIMAYA - Automatizacion Completa",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "cotizador",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "node-webhook",
+      "name": "Webhook Cotizacion",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        300
+      ],
+      "webhookId": "cotizador-himaya"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Normaliza el payload del webhook, genera ID/fecha, arma los HTML de correo\n// y deja el PDF listo como binario (para Google Drive) y como base64 (para Resend).\nconst raw = $input.first().json;\nconst b = raw.body || raw;\n\nconst cliente = b.cliente || {};\nconst proyecto = b.proyecto || {};\nconst cart = Array.isArray(b.cart) ? b.cart : [];\nconst moneda = b.moneda || 'MXN';\nconst simbolo = moneda;\nconst subtotal = Number(b.subtotal || 0);\nconst iva = Number(b.iva || 0);\nconst total = Number(b.total || 0);\nconst metodoPago = b.metodoPago || '';\nconst tipoCambio = Number(b.tipoCambio || 0);\n\nconst correos = Array.isArray(cliente.correos)\n  ? cliente.correos.filter(Boolean)\n  : (Array.isArray(b.correos) ? b.correos.filter(Boolean) : []);\n\nif (correos.length === 0) {\n  throw new Error('El payload no incluye ningun correo de cliente (cliente.correos vacio).');\n}\n\nconst cotizacionId = b.cotizacionId || ('COT-' + Date.now());\nconst timestamp = new Date().toISOString();\nconst fechaMX = new Date().toLocaleDateString('es-MX');\nconst fechaVigencia = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toLocaleDateString('es-MX');\n\n// PDF: quitar el prefijo data: si viniera incluido.\nlet pdfBase64 = b.pdfBase64 || '';\npdfBase64 = pdfBase64.replace(/^data:application\\/pdf(;base64)?,/, '');\n\nconst nombreArchivo = b.nombreArchivo\n  || ('Cotizacion_' + String(cliente.nombreCompleto || 'Cliente').replace(/\\s+/g, '_') + '_' + fechaMX.replace(/\\//g, '-') + '.pdf');\n\nconst METODO = {\n  tarjeta_credito: 'Tarjeta de Credito',\n  tarjeta_debito: 'Tarjeta de Debito',\n  contado: 'Contado',\n  cheque: 'Cheque',\n  transferencia: 'Transferencia',\n  credito: 'Credito',\n};\nconst metodoLabel = METODO[metodoPago] || metodoPago || '-';\n\nconst fmt = (n) => '$' + Number(n || 0).toLocaleString('es-MX', { maximumFractionDigits: 2 });\n\nconst filasProductos = cart.map((it) => {\n  const precio = (it.product && it.product.precio) || 0;\n  const cantidad = it.cantidad || 0;\n  const descuento = it.descuento || 0;\n  const pu = precio * (1 - descuento / 100);\n  const imp = pu * cantidad;\n  const nombre = (it.product && it.product.nombre) || '';\n  const nota = it.notas ? '<br><span style=\"color:#666;font-size:11px\">Nota: ' + it.notas + '</span>' : '';\n  return '<tr>'\n    + '<td style=\"padding:10px;text-align:left;border-bottom:1px solid #e5e7eb\">' + nombre + nota + '</td>'\n    + '<td style=\"padding:10px;text-align:center;border-bottom:1px solid #e5e7eb\">' + cantidad + '</td>'\n    + '<td style=\"padding:10px;text-align:right;border-bottom:1px solid #e5e7eb\">' + fmt(pu) + '</td>'\n    + '<td style=\"padding:10px;text-align:right;border-bottom:1px solid #e5e7eb\">' + fmt(imp) + '</td>'\n    + '</tr>';\n}).join('');\n\nconst asunto = 'Cotizacion - ' + (proyecto.titulo || cliente.nombreCompleto || cotizacionId);\n\nconst htmlCliente = ''\n+ '<!DOCTYPE html><html><head><meta charset=\"utf-8\"></head>'\n+ '<body style=\"font-family:Arial,sans-serif;color:#333;margin:0;padding:0;background:#f4f5f7\">'\n+ '<div style=\"max-width:640px;margin:0 auto;padding:24px\">'\n+ '<div style=\"background:#0055a5;color:#fff;padding:24px;text-align:center;border-radius:8px 8px 0 0\">'\n+ '<h1 style=\"margin:0;font-size:22px\">' + (proyecto.titulo || 'Cotizacion') + '</h1>'\n+ '<p style=\"margin:6px 0 0;opacity:.9\">HIMAYA Sistemas - Seguridad Electronica</p></div>'\n+ '<div style=\"background:#fff;padding:24px;border:1px solid #e5e7eb;border-top:none\">'\n+ '<h2 style=\"margin-top:0;color:#0055a5\">Hola, ' + (cliente.nombreCompleto || '') + '</h2>'\n+ '<p>Adjunto encontrara su cotizacion en PDF con el detalle completo. Aqui un resumen:</p>'\n+ (proyecto.descripcion ? '<p style=\"color:#555\">' + proyecto.descripcion + '</p>' : '')\n+ '<div style=\"background:#f3f4f6;padding:14px;border-radius:6px;margin:16px 0\">'\n+ '<p style=\"margin:4px 0\"><strong>' + (cliente.nombreCompleto || '') + '</strong></p>'\n+ (cliente.empresa ? '<p style=\"margin:4px 0\">Empresa: ' + cliente.empresa + '</p>' : '')\n+ (cliente.rfc ? '<p style=\"margin:4px 0\">RFC: ' + cliente.rfc + '</p>' : '')\n+ (cliente.telefono ? '<p style=\"margin:4px 0\">Telefono: ' + cliente.telefono + '</p>' : '')\n+ '<p style=\"margin:4px 0\">Metodo de pago: ' + metodoLabel + '</p></div>'\n+ '<table style=\"width:100%;border-collapse:collapse;margin:16px 0\">'\n+ '<thead><tr style=\"background:#0055a5;color:#fff\">'\n+ '<th style=\"padding:10px;text-align:left\">Descripcion</th>'\n+ '<th style=\"padding:10px;text-align:center\">Cant.</th>'\n+ '<th style=\"padding:10px;text-align:right\">P. Unitario</th>'\n+ '<th style=\"padding:10px;text-align:right\">Subtotal</th></tr></thead>'\n+ '<tbody>' + filasProductos + '</tbody></table>'\n+ '<div style=\"text-align:right;margin:16px 0\">'\n+ '<div style=\"margin:6px 0\"><strong>Subtotal:</strong> ' + fmt(subtotal) + ' ' + simbolo + '</div>'\n+ '<div style=\"margin:6px 0\"><strong>IVA (16%):</strong> ' + fmt(iva) + ' ' + simbolo + '</div>'\n+ '<div style=\"display:inline-block;margin-top:8px;padding:10px 16px;background:#0055a5;color:#fff;border-radius:6px;font-size:18px\"><strong>TOTAL: ' + fmt(total) + ' ' + simbolo + '</strong></div>'\n+ '</div>'\n+ '<p style=\"color:#555\">Vigencia: 30 dias naturales (hasta el ' + fechaVigencia + '). Los precios pueden variar despues de la vigencia.</p>'\n+ '<p>Cualquier duda, respondemos con gusto por este medio o por WhatsApp.</p>'\n+ '</div>'\n+ '<div style=\"text-align:center;color:#888;font-size:12px;padding:16px\">Cotizacion ' + cotizacionId + ' - (c) ' + new Date().getFullYear() + ' HIMAYA Sistemas</div>'\n+ '</div></body></html>';\n\nconst htmlInterno = ''\n+ '<div style=\"font-family:Arial,sans-serif;color:#222\">'\n+ '<h2 style=\"color:#0055a5\">Nueva cotizacion generada</h2>'\n+ '<table style=\"border-collapse:collapse\">'\n+ '<tr><td style=\"padding:4px 12px 4px 0\"><strong>ID</strong></td><td>' + cotizacionId + '</td></tr>'\n+ '<tr><td style=\"padding:4px 12px 4px 0\"><strong>Fecha</strong></td><td>' + fechaMX + '</td></tr>'\n+ '<tr><td style=\"padding:4px 12px 4px 0\"><strong>Cliente</strong></td><td>' + (cliente.nombreCompleto || '') + '</td></tr>'\n+ '<tr><td style=\"padding:4px 12px 4px 0\"><strong>Empresa</strong></td><td>' + (cliente.empresa || '-') + '</td></tr>'\n+ '<tr><td style=\"padding:4px 12px 4px 0\"><strong>Correos</strong></td><td>' + correos.join(', ') + '</td></tr>'\n+ '<tr><td style=\"padding:4px 12px 4px 0\"><strong>Telefono</strong></td><td>' + (cliente.telefono || '-') + '</td></tr>'\n+ '<tr><td style=\"padding:4px 12px 4px 0\"><strong>Proyecto</strong></td><td>' + (proyecto.titulo || '-') + '</td></tr>'\n+ '<tr><td style=\"padding:4px 12px 4px 0\"><strong>Metodo pago</strong></td><td>' + metodoLabel + '</td></tr>'\n+ '<tr><td style=\"padding:4px 12px 4px 0\"><strong>Total</strong></td><td>' + fmt(total) + ' ' + simbolo + '</td></tr>'\n+ '</table></div>';\n\nconst productosJson = JSON.stringify(cart);\nconst emailStr = correos.join(', ');\n\nconst salida = {\n  cotizacionId, timestamp, fechaMX, fechaVigencia,\n  cliente, proyecto, cart, moneda, simbolo, tipoCambio,\n  subtotal, iva, total, metodoPago, metodoLabel,\n  correos, emailStr, productosJson, notas: (proyecto.descripcion || proyecto.titulo || ''),\n  nombreArchivo, pdfBase64, tienePdf: pdfBase64.length > 0,\n  asunto, htmlCliente, htmlInterno,\n};\n\nconst item = { json: salida };\nif (pdfBase64) {\n  item.binary = { pdf: { data: pdfBase64, mimeType: 'application/pdf', fileName: nombreArchivo } };\n}\nreturn [item];"
+      },
+      "id": "node-prep",
+      "name": "Prep",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        220,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.resend.com/emails",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer re_bqkiT757_AokuRvbgemCduMARAocnoH1S"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ from: \"Cotizaciones HIMAYA <cotizaciones@himayasist.com>\", to: $json.correos, subject: $json.asunto, html: $json.htmlCliente, attachments: $json.tienePdf ? [ { filename: $json.nombreArchivo, content: $json.pdfBase64 } ] : [] }) }}",
+        "options": {}
+      },
+      "id": "node-resend-cliente",
+      "name": "Resend - Correo Cliente",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        440,
+        300
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "1AgYaDF1d4mAJb5mzku-HetlKwRy-AvxS-JldlfgUgaY",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Cotizaciones",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Fecha": "={{ $json.timestamp }}",
+            "Cliente": "={{ $json.cliente.nombreCompleto }}",
+            "Empresa": "={{ $json.cliente.empresa }}",
+            "RFC": "={{ $json.cliente.rfc }}",
+            "Email": "={{ $json.emailStr }}",
+            "Telefono": "={{ $json.cliente.telefono }}",
+            "Productos (JSON)": "={{ $json.productosJson }}",
+            "Subtotal": "={{ $json.subtotal }}",
+            "IVA": "={{ $json.iva }}",
+            "Total": "={{ $json.total }}",
+            "Moneda": "={{ $json.moneda }}",
+            "Metodo Pago": "={{ $json.metodoLabel }}",
+            "Notas": "={{ $json.notas }}",
+            "ID Cotizacion": "={{ $json.cotizacionId }}",
+            "Status": "Completada"
+          }
+        },
+        "options": {}
+      },
+      "id": "node-sheets",
+      "name": "Google Sheets - Append",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        660,
+        300
+      ],
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "googleApi": {
+          "id": "REEMPLAZAR_CRED_GOOGLE",
+          "name": "Google Service Account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "upload",
+        "name": "={{ $json.nombreArchivo }}",
+        "driveId": {
+          "__rl": true,
+          "mode": "list",
+          "value": "My Drive"
+        },
+        "folderId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "REEMPLAZAR_FOLDER_ID"
+        },
+        "inputDataFieldName": "pdf",
+        "options": {}
+      },
+      "id": "node-drive",
+      "name": "Google Drive - Guardar PDF",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        880,
+        300
+      ],
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "googleApi": {
+          "id": "REEMPLAZAR_CRED_GOOGLE",
+          "name": "Google Service Account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.resend.com/emails",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer re_bqkiT757_AokuRvbgemCduMARAocnoH1S"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ from: \"Cotizaciones HIMAYA <cotizaciones@himayasist.com>\", to: [\"mesainteligentedemo@gmail.com\"], subject: \"Nueva cotizacion \" + $json.cotizacionId + \" - \" + ($json.cliente.nombreCompleto || \"\"), html: $json.htmlInterno }) }}",
+        "options": {}
+      },
+      "id": "node-resend-admin",
+      "name": "Resend - Notificacion Interna",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1100,
+        300
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Reune el estado de cada paso (los nodos usan onError:continue) y arma la respuesta JSON.\nconst p = $('Prep').first().json;\n\nfunction ok(nodeName) {\n  try {\n    const it = $(nodeName).first();\n    if (!it) return false;\n    if (it.json && (it.json.error || it.error)) return false;\n    return true;\n  } catch (e) {\n    return false;\n  }\n}\n\nconst emailSent = ok('Resend - Correo Cliente');\nconst sheetsUpdated = ok('Google Sheets - Append');\nconst driveSaved = ok('Google Drive - Guardar PDF');\nconst adminNotified = ok('Resend - Notificacion Interna');\n\nreturn [{\n  json: {\n    success: emailSent || sheetsUpdated,\n    cotizacionId: p.cotizacionId,\n    timestamp: p.timestamp,\n    emailSent,\n    sheetsUpdated,\n    driveSaved,\n    adminNotified,\n    pdfAdjuntado: p.tienePdf,\n    destinatarios: p.correos,\n  },\n}];"
+      },
+      "id": "node-build-resp",
+      "name": "Build Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1320,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($json) }}",
+        "options": {}
+      },
+      "id": "node-respond",
+      "name": "Responder Webhook",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        1540,
+        300
+      ]
+    }
+  ],
+  "connections": {
+    "Webhook Cotizacion": {
+      "main": [
+        [
+          {
+            "node": "Prep",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prep": {
+      "main": [
+        [
+          {
+            "node": "Resend - Correo Cliente",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Resend - Correo Cliente": {
+      "main": [
+        [
+          {
+            "node": "Google Sheets - Append",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Sheets - Append": {
+      "main": [
+        [
+          {
+            "node": "Google Drive - Guardar PDF",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Drive - Guardar PDF": {
+      "main": [
+        [
+          {
+            "node": "Resend - Notificacion Interna",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Resend - Notificacion Interna": {
+      "main": [
+        [
+          {
+            "node": "Build Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Response": {
+      "main": [
+        [
+          {
+            "node": "Responder Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {},
+  "meta": {
+    "templateid": "cotizador-himaya-v1"
+  },
+  "tags": []
+}

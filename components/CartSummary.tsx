@@ -6,6 +6,7 @@ import { calcularSubtotal } from '@/lib/calculos';
 import { generarPDF, generarPDFBlob } from '@/lib/generarPDF';
 import { enviarPorCorreo } from '@/lib/enviarCorreo';
 import { guardarEnSheets } from '@/lib/guardarCotizacion';
+import { enviarAn8n } from '@/lib/enviarAn8n';
 
 const METODO_PAGO_LABELS: Record<MetodoPago, string> = {
   tarjeta_credito: 'Tarjeta de Crédito',
